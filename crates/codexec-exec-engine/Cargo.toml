@@ -1,0 +1,21 @@
+[package]
+name = "codexec-exec-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+codexec-exec-contract.workspace = true
+containerd-client = "0.9"
+prost = "0.14"
+prost-types = "0.14"
+tokio.workspace = true
+oci-spec = { version = "0.10", features = ["runtime"] }
+tempfile = "3"
+uuid.workspace = true
+sha2 = "0.10"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+moka = { version = "0.12", features = ["future"] }

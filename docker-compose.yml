@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: codexec
+      POSTGRES_PASSWORD: codexec
+      POSTGRES_DB: codexec
+    ports:
+      - "5432:5432"
+    volumes:
+      - codexec-postgres-data:/var/lib/postgresql/data
+
+  nats:
+    image: nats:2.10
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  # Dev/test only: bundles a dedicated containerd + runc alongside
+  # codexec-worker so the real sandboxed execution engine can be exercised
+  # without a bare-metal Linux host. Needs `privileged` for containerd/runc
+  # to manage cgroups and mount namespaces. See docker/worker.Dockerfile.
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    privileged: true
+    depends_on:
+      - postgres
+      - nats
+    environment:
+      DATABASE_URL: postgres://codexec:codexec@postgres:5432/codexec
+      NATS_URL: nats://nats:4222
+      RUST_LOG: info
+      CONTAINERD_SOCKET_PATH: /run/containerd/containerd.sock
+      CONTAINERD_NAMESPACE: codexec
+      CONTAINERD_SNAPSHOTTER: overlayfs
+      WORKSPACE_ROOT: /var/lib/codexec/workspaces
+      CGROUP_ROOT: /sys/fs/cgroup
+      WORKER_CONCURRENCY: 4
+      # Conservative defaults sized for a small dev VM (e.g. colima's
+      # 2 CPU / 4GiB default profile) with headroom for the worker
+      # process and containerd/shim processes. Raise for a bigger host.
+      ENGINE_TOTAL_CPU_CORES: "1.0"
+      ENGINE_TOTAL_MEMORY_MB: "1024"
+    volumes:
+      # Named volumes, not the container's own overlay2 root filesystem:
+      # nesting overlayfs-on-overlayfs is unsupported/fragile on many
+      # kernels, so containerd's snapshot store needs a plain block-backed
+      # filesystem of its own.
+      - codexec-containerd-data:/var/lib/containerd
+      - codexec-workspaces:/var/lib/codexec/workspaces
+
+volumes:
+  codexec-postgres-data:
+  codexec-containerd-data:
+  codexec-workspaces:

@@ -1,0 +1,23 @@
+[package]
+name = "codexec-plugin-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "codexec-plugin-cli"
+path = "src/main.rs"
+
+[dependencies]
+codexec-common.workspace = true
+clap.workspace = true
+toml.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+async-nats.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenvy.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true

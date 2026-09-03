@@ -1,0 +1,25 @@
+[package]
+name = "codexec-api"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "codexec-api"
+path = "src/main.rs"
+
+[dependencies]
+codexec-common.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+tokio.workspace = true
+sqlx.workspace = true
+async-nats.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+dotenvy.workspace = true
+anyhow.workspace = true
