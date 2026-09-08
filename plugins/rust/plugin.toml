@@ -1,0 +1,55 @@
+# Rust - 1.88.0, edition 2024, opt-level 2, with rand 0.8, regex 1 and
+# itertools 0.14 pre-vendored so a single submitted main.rs can `use` them
+# with no per-submission Cargo.toml.
+#
+# How the crates are wired up (fully verified end-to-end against
+# codexec/rust:1.88.0, including `docker run --read-only` + PATH-only env
+# matching the real sandbox's process spec - see spec.rs):
+#   - The Dockerfile pre-builds a throwaway cargo project depending on the
+#     3 crates (`cargo build --release`), which also pulls in and builds
+#     every transitive dependency (regex-automata, regex-syntax,
+#     aho-corasick, memchr for regex; rand_core, rand_chacha, getrandom,
+#     ppv-lite86, zerocopy, libc for rand; either for itertools) as .rlib
+#     files under /opt/rust-deps/target/release/deps.
+#   - compile_cmd invokes `rustc` (not `cargo`) directly on the single
+#     submitted file, pointed at that directory via `-L dependency=...` so
+#     transitive deps resolve automatically, plus one explicit `--extern
+#     <name>=<path>` per crate the submission can directly `use`. The exact
+#     .rlib filename per crate includes a content hash suffix, so it's
+#     resolved via a shell glob at compile time (fixed, submission-
+#     independent shell text - see the sh -c note in the assignment).
+#   - No network access is needed at submission time - only at image build
+#     time, which is fine (see Dockerfile).
+#
+# Two env quirks that only surfaced under actual testing (not from docs):
+#   - TMPDIR must be redirected to /sandbox/in: rustc always needs a
+#     writable temp dir for codegen intermediates, and errors with
+#     "couldn't create a temp dir: Read-only file system" against the
+#     default /tmp, since the sandbox's rootfs is read-only with no /tmp
+#     tmpfs.
+#   - rustc/cargo are NOT on the exec engine's hardcoded PATH by default:
+#     the base rust:1.88.0 image only puts them on PATH via its own image
+#     ENV, which the sandbox's container spec does not inherit (see
+#     spec.rs - PATH is hardcoded to the standard system bin dirs). The
+#     Dockerfile symlinks both into /usr/local/bin to fix this.
+[language]
+slug = "rust"
+display_name = "Rust"
+version = "1.88.0"
+
+[image]
+reference = "codexec/rust:1.88.0"
+
+[commands]
+compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in rustc --edition 2024 -C opt-level=2 -L dependency=/opt/rust-deps/target/release/deps --extern rand=$(ls /opt/rust-deps/target/release/deps/librand-*.rlib) --extern regex=$(ls /opt/rust-deps/target/release/deps/libregex-*.rlib) --extern itertools=$(ls /opt/rust-deps/target/release/deps/libitertools-*.rlib) -o main main.rs"]
+run_cmd = ["./main"]
+source_filename = "main.rs"
+compile_time_limit_ms = 10000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 262144
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576

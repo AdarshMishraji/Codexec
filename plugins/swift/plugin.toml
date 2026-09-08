@@ -1,0 +1,64 @@
+# Swift - 6.0, with swift-algorithms 1.2.0, swift-collections 1.1.4 and
+# swift-numerics 1.0.2 usable from a single submitted main.swift (no
+# per-submission Package.swift).
+#
+# How the packages are wired up (fully verified end-to-end against
+# codexec/swift:6.0, including a real crash found and fixed - see below):
+#   - The Dockerfile resolves and builds all 3 packages once via a
+#     throwaway SwiftPM executable that depends on them (network access at
+#     image-build time only). These packages declare their library products
+#     as "automatic" (the SwiftPM default), so `swift build` never emits a
+#     standalone lib<Product>.a - it only ever links their compiled object
+#     files directly into a consuming executable. To make them linkable
+#     from a plain `swiftc` invocation with no SwiftPM project, the
+#     Dockerfile manually archives each target's already-compiled .o files
+#     (from .build/release/<Target>.build/) into our own lib<Target>.a
+#     files, and copies out the .swiftmodule interface files SwiftPM always
+#     emits regardless.
+#   - swift-numerics' RealModule depends on a small C target,
+#     _NumericsShims, whose Clang module map also has to be on the include
+#     path at submission compile time (not just the Swift .swiftmodule
+#     files), or compilation fails with "missing required module".
+#   - Critical correctness gotcha found only by actually running the
+#     compiled output: linking these hand-built .a files as normal static
+#     archives (even inside `--start-group`/`--end-group`, needed for their
+#     circular-ish dependency order) silently PASSED compilation and
+#     linking but corrupted the binary at runtime - `print()` on a Deque
+#     produced the default mirror-reflection dump instead of calling its
+#     real `description`, and printing a swift-numerics Complex value
+#     crashed with a bad pointer dereference in libswiftCore. This is a
+#     known Swift-on-Linux static-linking pitfall: the linker's normal
+#     "only pull in archive members that resolve a referenced undefined
+#     symbol" behavior can drop object files whose only externally-visible
+#     content is a `swift5_protocol_conformances`-style metadata section,
+#     silently breaking protocol conformance / generic printing at runtime
+#     with no compile or link error. Wrapping our 13 custom archives in
+#     `-Xlinker --whole-archive ... -Xlinker --no-whole-archive` (forcing
+#     the linker to include every member unconditionally) fixed this
+#     completely - verified with Algorithms (`uniqued()`), Collections
+#     (`Deque`, `OrderedSet`) and Numerics (`Complex`, `Double.sqrt`) all
+#     printing correct values with no crash.
+#   - TMPDIR is redirected to /sandbox/in (cwd) for the same reason as the
+#     other compiled languages: swiftc needs a writable scratch dir and the
+#     sandbox rootfs is read-only with no /tmp tmpfs.
+[language]
+slug = "swift"
+display_name = "Swift"
+version = "6.0"
+
+[image]
+reference = "codexec/swift:6.0"
+
+[commands]
+compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in swiftc -O -module-cache-path /sandbox/in/.swift-mcache -I /opt/swift-libs/modules -I /opt/swift-libs/include/_NumericsShims -o main main.swift -L /opt/swift-libs/lib -Xlinker --whole-archive -Xlinker -lAlgorithms -Xlinker -lCollections -Xlinker -lBitCollections -Xlinker -lDequeModule -Xlinker -lHashTreeCollections -Xlinker -lHeapModule -Xlinker -lInternalCollectionsUtilities -Xlinker -lOrderedCollections -Xlinker -l_RopeModule -Xlinker -lNumerics -Xlinker -lRealModule -Xlinker -lComplexModule -Xlinker -l_NumericsShims -Xlinker --no-whole-archive"]
+run_cmd = ["./main"]
+source_filename = "main.swift"
+compile_time_limit_ms = 10000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 524288
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576

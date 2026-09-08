@@ -1,0 +1,44 @@
+# Kotlin - 2.1.10. Submissions are a single main.kt with a top-level
+# `fun main()` (idiomatic Kotlin - unlike Java/Scala, no enclosing class or
+# object name convention is required for an entry point).
+#
+# No actively-maintained public Docker image ships this specific compiler
+# version (see Dockerfile), so it's installed from JetBrains' own GitHub
+# release archive on top of a plain JDK. `-include-runtime` bundles the
+# Kotlin stdlib into the output jar so run_cmd is a plain `java -jar` with
+# no separate runtime classpath entry needed.
+#
+# Verified end-to-end against codexec/kotlin:2.1.10 with `docker run
+# --read-only` + PATH-only env (matching spec.rs): a `map` lambda and a
+# `data class` both compiled and ran correctly. -J-Djava.io.tmpdir
+# redirects the *JVM's* notion of the temp dir (kotlinc runs on the JVM,
+# which does not honor the $TMPDIR environment variable the way native
+# compilers do) to /sandbox/in - without it, kotlinc still produces a
+# working jar, but a helper library (jansi) fails on an unrelated /tmp
+# lock-file write since the rootfs is read-only with no /tmp tmpfs,
+# printing a spurious warning.
+[language]
+slug = "kotlin"
+display_name = "Kotlin"
+version = "2.1.10"
+
+[image]
+reference = "codexec/kotlin:2.1.10"
+
+[commands]
+compile_cmd = ["kotlinc", "-J-Djava.io.tmpdir=/sandbox/in", "main.kt", "-include-runtime", "-d", "main.jar"]
+run_cmd = ["java", "-jar", "main.jar"]
+source_filename = "main.kt"
+# kotlinc's non-daemon cold-start (JVM launch + compiler class loading) was
+# measured at ~25s for a trivial one-line program in this environment - far
+# above the 10s used elsewhere in this repo. Bumped well past that observed
+# cost so real compiles don't spuriously hit compile_error from a timeout.
+compile_time_limit_ms = 40000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 524288
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576

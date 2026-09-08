@@ -1,0 +1,43 @@
+# C++ - clang 19, C++23, libstdc++ from GCC 14, -O2, AddressSanitizer.
+#
+# TMPDIR is redirected to /sandbox/in (cwd, the only writable path) because
+# clang writes its own scratch files during compilation and the container
+# rootfs is read-only with no /tmp tmpfs - without this, compilation fails
+# with "unable to make temporary file: Read-only file system". Verified live
+# against codexec/cpp:1.0.0 with `docker run --read-only` + PATH-only env,
+# matching the real sandbox's process spec exactly (see spec.rs).
+#
+# ASan was verified end-to-end (heap-buffer-overflow caught -> SIGABRT) at
+# -O2 against this image. Note: trivially-foldable OOB accesses (e.g. a
+# constant index written and never read back through a real memory op) can
+# get optimized away by clang before ASan's checks matter - this is normal
+# clang behavior, not a plugin gap; genuine runtime-determined OOB accesses
+# are always caught.
+#
+# run_cmd sets ASAN_OPTIONS=detect_leaks=0: ASan bundles LeakSanitizer by
+# default on Linux, which would fail otherwise-correct submissions that
+# simply never free() everything before a short-lived process exits (normal
+# and harmless for one-shot judge submissions). This only disables the leak
+# checker - out-of-bounds and use-after-free detection (verified above) are
+# untouched.
+[language]
+slug = "cpp"
+display_name = "C++ (Clang 19, C++23)"
+version = "19.1.7"
+
+[image]
+reference = "codexec/cpp:1.0.0"
+
+[commands]
+compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in clang++-19 -std=c++23 -O2 -fsanitize=address -g -o main main.cpp"]
+run_cmd = ["sh", "-c", "ASAN_OPTIONS=detect_leaks=0 exec ./main"]
+source_filename = "main.cpp"
+compile_time_limit_ms = 10000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 524288
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576

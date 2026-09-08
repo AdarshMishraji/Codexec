@@ -1,0 +1,38 @@
+# JavaScript - node.js 22.14.0 run with --harmony, plus lodash.js@4.17.21
+# and the datastructures-js family available via require().
+#
+# --harmony is passed straight through to `node` as documented, even though
+# on a runtime this recent it no longer gates any of the plain ES6 features
+# it used to (those have been unconditional in V8/Node for years) - it now
+# only toggles a handful of still-staged proposals. Passing it is harmless
+# and matches the documented runtime behavior exactly.
+#
+# NODE_PATH=/opt/codexec/node_modules is what makes `require('lodash')` /
+# `require('@datastructures-js/heap')` etc. resolve with no local
+# node_modules in the submission's own directory - see Dockerfile for how
+# that prefix is populated. Verified end-to-end against
+# codexec/javascript:1.0.0 with `docker run --read-only` + PATH-only env,
+# matching the real sandbox's process spec exactly (see spec.rs):
+# `require('lodash')`, `require('@datastructures-js/stack')`, object
+# spread, and a private class field all resolved and ran correctly.
+[language]
+slug = "javascript"
+display_name = "JavaScript (Node.js 22.14.0)"
+version = "22.14.0"
+
+[image]
+reference = "codexec/javascript:1.0.0"
+
+[commands]
+compile_cmd = []
+run_cmd = ["sh", "-c", "NODE_PATH=/opt/codexec/node_modules exec node --harmony main.js"]
+source_filename = "main.js"
+compile_time_limit_ms = 5000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 262144
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576
