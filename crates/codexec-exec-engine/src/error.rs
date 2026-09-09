@@ -1,9 +1,11 @@
 #[derive(thiserror::Error, Debug)]
 pub enum EngineError {
-    #[error("image not found in containerd store: {0}")]
+    #[error("image not found in local cache: {0}")]
     ImageNotFound(String),
-    #[error("containerd error: {0}")]
-    Containerd(String),
+    #[error("runc error: {0}")]
+    Runc(String),
+    #[error("image pull/unpack error: {0}")]
+    ImagePull(String),
     #[error("sandbox setup failed: {0}")]
     SandboxSetup(String),
     #[error("internal error: {0}")]
@@ -13,19 +15,9 @@ pub enum EngineError {
 impl EngineError {
     /// Whether the NATS/queue layer should let redelivery retry this
     /// submission, vs. treat it as terminal. A missing image won't fix
-    /// itself on retry; a transient containerd hiccup might.
+    /// itself on retry; a transient runc/host hiccup might.
     pub fn retryable(&self) -> bool {
         !matches!(self, EngineError::ImageNotFound(_))
-    }
-}
-
-impl From<containerd_client::tonic::Status> for EngineError {
-    fn from(status: containerd_client::tonic::Status) -> Self {
-        if status.code() == containerd_client::tonic::Code::NotFound {
-            EngineError::ImageNotFound(status.message().to_string())
-        } else {
-            EngineError::Containerd(status.message().to_string())
-        }
     }
 }
 

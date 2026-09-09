@@ -1,12 +1,12 @@
 # Running codexec on a Linux VM
 
 This covers a bare-metal (or full-VM, non-nested) Linux host: install
-containerd directly on the VM and run `codexec-api` (the server) and
+`runc` directly on the VM and run `codexec-api` (the server) and
 `codexec-worker` as native processes. This is simpler than the
-`docker-compose.yml` `worker` service, which only exists to nest
-containerd+runc inside a container for macOS/Windows dev machines that
-don't have Linux containerd available at all. On a real Linux VM you don't
-need that nesting trick.
+`docker-compose.yml` `worker` service, which only exists to nest runc
+inside a container for macOS/Windows dev machines that don't have a Linux
+host available at all. On a real Linux VM you don't need that nesting
+trick.
 
 Tested against Ubuntu/Debian; substitute your distro's package manager
 where noted.
@@ -16,34 +16,49 @@ where noted.
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-    build-essential pkg-config protobuf-compiler \
-    containerd runc \
+    build-essential pkg-config \
+    runc skopeo \
     docker.io \
     curl ca-certificates git
+
+# umoci isn't packaged for Debian/Ubuntu - install the pinned upstream
+# static binary directly (see docker/worker.Dockerfile for the same step).
+UMOCI_VERSION=0.6.0
+ARCH="$(dpkg --print-architecture)"
+sudo curl -fsSL -o /usr/local/bin/umoci \
+    "https://github.com/opencontainers/umoci/releases/download/v${UMOCI_VERSION}/umoci.linux.${ARCH}"
+sudo chmod +x /usr/local/bin/umoci
 
 # Rust toolchain (skip if already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 ```
 
-- `containerd` + `runc` are what actually run submissions — `codexec-worker`
-  talks to containerd's gRPC socket directly (see
-  `crates/codexec-exec-engine`), never to a Docker daemon.
+- `runc` is what actually runs submissions — `codexec-worker` invokes it
+  directly as a subprocess per submission (see
+  `crates/codexec-exec-engine`), no daemon, no gRPC, never a Docker daemon
+  on the hot path.
+- `skopeo` + `umoci` are what `codexec-plugin-cli register` uses to
+  pull-and-unpack a plugin's image into a plain rootfs directory ahead of
+  submission time — also no daemon involved.
 - `docker.io` here is only used to **build** plugin images (`docker build`);
-  it plays no role at submission time. `nerdctl` works equally well if you'd
-  rather not run a Docker daemon at all.
+  it plays no role at submission time, nor does it need to be present on
+  worker hosts at all once images are pushed to a registry (§8c). `nerdctl`
+  or `buildah` work equally well if you'd rather not run a Docker daemon
+  even for building.
 - Confirm cgroup v2 is in use (required by the exec engine's resource
   limits): `cat /sys/fs/cgroup/cgroup.controllers` should print something
   like `cpuset cpu io memory pids ...`, not fail with "no such file".
   Modern distro defaults (Ubuntu 22.04+, Debian 12+) already use cgroup v2.
 
-Enable and start containerd:
+Sanity-check runc directly:
 
 ```bash
-sudo systemctl enable --now containerd
-sudo systemctl status containerd   # should be active (running)
-sudo ctr version                   # sanity check the CLI can reach it
+runc --version
 ```
+
+No service to enable/start here — unlike containerd, `runc` has no
+daemon; `codexec-worker` invokes it fresh per submission.
 
 You'll also need Postgres and NATS (with JetStream). The repo's
 `docker-compose.yml` defines both and is safe to reuse as-is on Linux (only
@@ -82,16 +97,23 @@ Edit `.env` for your VM. At minimum:
 - `NATS_URL` — e.g. `nats://127.0.0.1:4222`.
 - `ADMIN_API_TOKEN` — required, no default; this Bearer token guards every
   `/admin/*` route (plugin registration, activate/deactivate).
-- `CONTAINERD_SOCKET_PATH` — `/run/containerd/containerd.sock` is correct
-  for a native `apt install containerd` on the same host.
-- `CONTAINERD_NAMESPACE` — `codexec` (containerd creates namespaces
-  on demand, nothing to pre-provision).
+- `IMAGE_CACHE_ROOT` — where `codexec-plugin-cli register` pulls+unpacks
+  each plugin's image to (via skopeo+umoci) and where `codexec-worker`
+  reads it back from — both must point at the same directory. Default
+  `/var/lib/codexec/images` is fine; create it and make sure both the user
+  running `codexec-plugin-cli` and the user running `codexec-worker` (root,
+  typically — see §5/§6) can read/write it.
+- `RUNC_ROOT` — `runc`'s own `--root` state directory, tracking
+  created/running containers. Default `/run/codexec/runc` is fine; give it
+  its own path (rather than runc's default `/run/runc`) so it can't collide
+  with any other runc usage on the host (e.g. Docker's own, if `docker.io`
+  is also installed per §1).
 - `WORKSPACE_ROOT` — a directory the worker process can read/write; each
   submission gets a per-run temp dir bind-mounted into its container here.
   Create it and make sure the user running the worker owns it:
   ```bash
-  sudo mkdir -p /var/lib/codexec/workspaces
-  sudo chown "$(whoami)" /var/lib/codexec/workspaces
+  sudo mkdir -p /var/lib/codexec/workspaces /var/lib/codexec/images /run/codexec/runc
+  sudo chown "$(whoami)" /var/lib/codexec/workspaces /var/lib/codexec/images
   ```
 - `ENGINE_TOTAL_CPU_CORES` / `ENGINE_TOTAL_MEMORY_MB` — raise these from the
   small-dev-box defaults to match your VM's real capacity.
@@ -110,9 +132,9 @@ migrations`.
 
 ## 5. Run the server
 
-Containerd (and runc) needs root to manage cgroups/namespaces, so the
-worker in particular typically runs as root or via a systemd unit with the
-right capabilities. The API server itself needs no special privileges.
+`runc` needs root to manage cgroups/namespaces, so the worker in
+particular typically runs as root or via a systemd unit with the right
+capabilities. The API server itself needs no special privileges.
 
 ```bash
 ./target/release/codexec-api
@@ -134,14 +156,23 @@ sudo -E ./target/release/codexec-worker
 adjust to however you're passing config through.)
 
 On a genuine bare-metal/VM host (not nested inside another container),
-containerd already has full delegated access to `/sys/fs/cgroup` as root,
-so you should **not** need the cgroup `subtree_control` dance that
-`docker/worker-entrypoint.sh` does — that workaround exists specifically
-because in the dev sidecar setup, containerd's own parent process is
+`codexec-worker` (running as root) already has full delegated access to
+`/sys/fs/cgroup`, so you should **not** need the cgroup `subtree_control`
+dance that `docker/worker-entrypoint.sh` does — that workaround exists
+specifically because in the dev sidecar setup, the worker's own process is
 already sitting inside someone else's (Docker's) delegated cgroup. If you
 see runc fail with `cannot enter cgroupv2 ... invalid state`, you're likely
 running the worker nested inside another container after all; see that
 script for the fix.
+
+Also bare-metal-only: a normal Linux init (systemd as PID 1) already reaps
+every orphaned process on the host, so `codexec-worker` doesn't need to be
+PID 1 itself the way the dev Docker image needs `tini` in front of it (see
+`docker/worker.Dockerfile`) — `runc create`/`start` fork a container-init
+helper that gets reparented once those short-lived `runc` invocations
+exit, and something has to reap it or it lingers as a zombie holding its
+cgroup open. Only relevant if you end up running `codexec-worker` itself
+inside a container on this host too (§8e covers that case explicitly).
 
 ### Running both as systemd services
 
@@ -165,8 +196,7 @@ WantedBy=multi-user.target
 # /etc/systemd/system/codexec-worker.service
 [Unit]
 Description=codexec worker
-After=network.target containerd.service
-Requires=containerd.service
+After=network.target
 
 [Service]
 EnvironmentFile=/opt/codexec/.env
@@ -221,60 +251,54 @@ Two things worth knowing before you write `compile_cmd`/`run_cmd`:
 docker build -t <image.reference from plugin.toml> plugins/mylang
 ```
 
-### 7c. Get the image into containerd
+### 7c. Register the language
 
-`codexec-worker` talks to containerd directly and expects the image to
-already exist there under the **exact** name in `plugin.toml`'s
+`codexec-worker` expects the image already pulled-and-unpacked into
+`IMAGE_CACHE_ROOT` under the exact name in `plugin.toml`'s
 `[image] reference` — it never pulls on demand at submission time (see
-`crates/codexec-exec-engine/src/image.rs`).
+`crates/codexec-exec-engine/src/image.rs`). `codexec-plugin-cli register`
+does the pull (via `skopeo`) and unpack (via `umoci`) for you as part of
+registering, so there's no separate "get the image into place" step, and
+no naming gotcha to worry about — `skopeo`/`umoci` always store things
+under the exact reference you give them.
 
 **If `image.reference` is a real, publicly pullable image** (i.e. you
 didn't write a custom `Dockerfile` — you're reusing something like
-`docker.io/library/python:3.11-slim` as-is), `codexec-plugin-cli register`
-handles everything below in one step (pre-pull + DB row), so skip to 7d.
-
-**If you built a custom image locally** (no registry has it — true for
-every compiled-language plugin already in this repo), you need to import
-it into containerd yourself, since there's nothing to pull:
-
-```bash
-docker save <image.reference> | sudo ctr -n codexec images import -
-```
-
-⚠️ **Naming gotcha**: `ctr images import` normalizes an unqualified name
-like `codexec/mylang:1.0.0` to the fully-qualified `docker.io/codexec/mylang:1.0.0`
-on import. If `plugin.toml` says `codexec/mylang:1.0.0` (no `docker.io/`
-prefix — the convention every plugin in this repo currently uses), that
-string will **not** match what containerd stored, and the worker will fail
-every submission with an image-not-found error. Retag it to match exactly
-what's in `plugin.toml`:
-
-```bash
-sudo ctr -n codexec images tag docker.io/codexec/mylang:1.0.0 codexec/mylang:1.0.0
-```
-
-(`images tag` adds an alias to the same content — it doesn't remove the
-original name, so this is safe to run even if you're not sure whether it's
-needed.)
-
-Verify it landed under the right name:
-
-```bash
-sudo ctr -n codexec images ls | grep mylang
-```
-
-### 7d. Register the language
-
-If `codexec-plugin-cli` can pull the image itself (public registry case):
+`docker.io/library/python:3.11-slim` as-is):
 
 ```bash
 ./target/release/codexec-plugin-cli register --manifest plugins/mylang/plugin.toml
 ```
 
-If you pre-imported it manually (7c's local-image case), running the CLI's
-`register` will still try to `ctr image pull` first and fail (there's
-nothing to pull) — use the admin HTTP API instead, which registers the DB
-row directly with no pull step. It takes JSON, so convert the TOML first:
+**If you built a custom image locally** (no registry has it — true for
+every compiled-language plugin already in this repo, unless you've pushed
+it somewhere per §8c), pull straight from your local Docker daemon's image
+store instead, with `--source docker-daemon`:
+
+```bash
+./target/release/codexec-plugin-cli register \
+    --manifest plugins/mylang/plugin.toml --source docker-daemon
+```
+
+Either way, registering is idempotent: an image already present in
+`IMAGE_CACHE_ROOT` is left as-is (registering again just updates the DB
+row — limits, commands, etc. — without re-pulling). Rebuilt the image
+under the same tag and need the new bytes picked up? Add `--force`:
+
+```bash
+./target/release/codexec-plugin-cli register \
+    --manifest plugins/mylang/plugin.toml --source docker-daemon --force
+```
+
+Registering inserts (or upserts, if you're updating an existing plugin)
+the language as **active** and notifies already-running workers over NATS
+(`codexec.control.plugin_updated`) — **no worker restart needed**, it picks
+up new/updated languages live (`crates/codexec-worker/src/registry.rs`).
+
+If you'd rather register without a pull at all (the row already exists,
+you only changed limits, and skipping even the presence-check matters to
+you), use the admin HTTP API directly instead, which writes the DB row
+with no pull step:
 
 ```bash
 python3 -c "
@@ -292,12 +316,7 @@ curl -sf -X POST http://localhost:8080/admin/languages \
 (Needs Python 3.11+ for `tomllib`; on older Python, `pip install toml` and
 use `toml.load(open(sys.argv[1]))` instead.)
 
-Either path inserts (or upserts, if you're updating an existing plugin)
-the language as **active** and notifies already-running workers over NATS
-(`codexec.control.plugin_updated`) — **no worker restart needed**, it picks
-up new/updated languages live (`crates/codexec-worker/src/registry.rs`).
-
-### 7e. Verify
+### 7d. Verify
 
 ```bash
 ./target/release/codexec-plugin-cli list
@@ -315,7 +334,7 @@ curl -s -X POST http://localhost:8080/submissions \
 curl -s http://localhost:8080/submissions/<id-from-above> | jq
 ```
 
-### 7f. Activate / deactivate later
+### 7e. Activate / deactivate later
 
 Registering already sets the language active. To toggle it afterward
 without touching the image or manifest:
@@ -356,8 +375,8 @@ either tier:
 
 ### 8b. The API host(s)
 
-Nothing containerd-related applies here — `codexec-api` never touches
-containerd or runs submissions, so it can live on a small, plain host (or
+Nothing execution-related applies here — `codexec-api` never touches
+`runc` or runs submissions, so it can live on a small, plain host (or
 container) with just the binary, `DATABASE_URL`, `NATS_URL`, and
 `ADMIN_API_TOKEN`. It's stateless request/response, so it scales
 horizontally the ordinary way (multiple instances behind a load balancer,
@@ -368,12 +387,12 @@ none of the actual submission execution happens here.
 ### 8c. The worker fleet
 
 Each worker host still needs everything from §1/§3 that's *local to
-execution*: containerd + runc, cgroup v2, a `WORKSPACE_ROOT` directory, and
-every plugin image already present in *that host's own* containerd store
-(§7c/7d) — containerd's image store is per-host, never shared, so this
-doesn't get easier by adding more hosts, it gets repeated on each one. It
-does **not** need `ADMIN_API_TOKEN`, `API_BIND_ADDR`, or anything else
-API-specific.
+execution*: `runc`, `skopeo`/`umoci`, cgroup v2, a `WORKSPACE_ROOT`
+directory, and every plugin image already present in *that host's own*
+`IMAGE_CACHE_ROOT` (§7c) — the image cache is per-host, never shared, so
+this doesn't get easier by adding more hosts, it gets repeated on each
+one. It does **not** need `ADMIN_API_TOKEN`, `API_BIND_ADDR`, or anything
+else API-specific.
 
 Two things make a pool of these hosts behave as one elastic fleet rather
 than N independent workers, both already built into `codexec-worker` —
@@ -405,7 +424,7 @@ Because any instance in the pool can be handed any queued submission
 regardless of language, **every worker instance must have every active
 language's image available locally** — not just newly-launched ones. This
 has one real consequence for how you provision plugin images at fleet
-scale (§7c's manual `docker save | ctr images import` + retag doesn't
+scale (pulling from each host's own local Docker daemon per §7c doesn't
 scale to N hosts):
 
 **Push plugin images to a real registry, and use fully-qualified
@@ -419,42 +438,41 @@ Hub/GHCR/etc.), push each built plugin image there, and set
 reference = "registry.internal.example.com/codexec/mylang:1.0.0"
 ```
 
-This sidesteps §7's local-import naming gotcha entirely (a real registry
-pull always stores the image under the exact name you asked for), and it
-means `codexec-plugin-cli register`'s built-in pre-pull just works
-standalone — no more manual `ctr images import`/`tag` dance for any plugin,
-single-host or fleet.
+This means `codexec-plugin-cli register`'s built-in pre-pull (the default
+`--source registry`) just works standalone on every host — no per-host
+Docker daemon needed at all once images are pushed.
 
 With that in place, provisioning a worker host becomes: install
-containerd/runc, then pull every currently-active language's image before
-`codexec-worker` starts accepting work. A boot-time script (cloud-init
-user-data, or a systemd `ExecStartPre=`) covers both a fresh instance
-joining the pool and re-running it manually across the fleet right after
-you register a new plugin (§7d) — new instances get it from the registry
-automatically, but *already-running* instances only get the new image once
-this has run on them too:
+`runc`+`skopeo`+`umoci`, then pull every currently-active language's image
+before `codexec-worker` starts accepting work. A boot-time script
+(cloud-init user-data, or a systemd `ExecStartPre=`) covers both a fresh
+instance joining the pool and re-running it manually across the fleet
+right after you register a new plugin (§7c) — new instances get it from
+the registry automatically, but *already-running* instances only get the
+new image once this has run on them too. `codexec-plugin-cli pull-image`
+(§7c) does the pull without needing a full plugin manifest or DB
+credentials on the provisioning host - just an image ref:
 
 ```bash
 #!/usr/bin/env bash
 # provision-worker-images.sh — pull every active language's image into
-# this host's containerd store. Run at boot, and again on existing hosts
+# this host's image cache. Run at boot, and again on existing hosts
 # whenever a new plugin is registered.
 set -euo pipefail
 API_URL="${CODEXEC_API_URL:-https://api.internal.example.com}"
-NS="${CONTAINERD_NAMESPACE:-codexec}"
 
 curl -sf "$API_URL/admin/languages" -H "Authorization: Bearer $ADMIN_API_TOKEN" \
   | jq -r '.[].image_ref' \
   | sort -u \
   | while read -r ref; do
       echo "pulling $ref..."
-      ctr -n "$NS" images pull "$ref"
+      codexec-plugin-cli pull-image --image-ref "$ref"
     done
 ```
 
 (A fleet-wide command runner — SSM Run Command, Ansible, a small
 orchestration tool, whatever you're already using — is what actually
-re-runs this on already-live instances after §7d; nothing in
+re-runs this on already-live instances after §7c; nothing in
 `codexec-worker` pushes new images to running hosts for you.)
 
 ### 8d. Autoscaling signal
@@ -488,13 +506,17 @@ autoscaler is adding more hosts.
 ### 8e. If the worker fleet runs as containers itself (Kubernetes/Nomad/etc.)
 
 Everything above assumes worker hosts are plain Linux VMs, matching the
-containerd-on-bare-metal setup from §1. If you instead run
-`codexec-worker` itself inside a container (e.g. Kubernetes pods, one
-containerd+runc+codexec-worker per pod, autoscaled via HPA/KEDA on the
+runc-on-bare-metal setup from §1. If you instead run `codexec-worker`
+itself inside a container (e.g. Kubernetes pods, one
+runc+skopeo+umoci+codexec-worker per pod, autoscaled via HPA/KEDA on the
 same JetStream metric from §8d), you're back in the nested-cgroup
 situation the dev `docker-compose.yml` `worker` service exists for —
 you'll need that same cgroup `subtree_control` delegation step from
-`docker/worker-entrypoint.sh`, a `privileged: true`-equivalent pod security
-context, and per-pod-not-per-node image provisioning (§8c's script, run as
-each pod's init container instead of at VM boot, since a fresh pod means a
-fresh, empty containerd content store every time).
+`docker/worker-entrypoint.sh`, a real init process as PID 1 (`tini`, same
+as the dev image — without one, `runc create`/`start`'s reparented
+container-init helper is never reaped once the container process exits,
+becoming a zombie that holds its cgroup open and confuses `runc`'s own
+state reporting), a `privileged: true`-equivalent pod security context,
+and per-pod-not-per-node image provisioning (§8c's script, run as each
+pod's init container instead of at VM boot, since a fresh pod means a
+fresh, empty image cache every time).

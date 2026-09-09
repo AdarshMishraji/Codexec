@@ -19,11 +19,10 @@ const WALL_TIME_FIXED_OVERHEAD_MS: u64 = 2000;
 const PLATFORM_MAX_WALL_TIME_MS: u64 = 120_000;
 const MAX_OUTPUT_BYTES: u64 = 1_048_576;
 
-async fn build_engine(config: &WorkerConfig) -> Arc<dyn ExecutionEngine> {
+fn build_engine(config: &WorkerConfig) -> Arc<dyn ExecutionEngine> {
     let engine_config = codexec_exec_engine::EngineConfig {
-        containerd_socket_path: config.containerd_socket_path.clone().into(),
-        namespace: config.containerd_namespace.clone(),
-        snapshotter: config.containerd_snapshotter.clone(),
+        image_cache_root: config.image_cache_root.clone().into(),
+        runc_root: config.runc_root.clone().into(),
         workspace_root: config.workspace_root.clone().into(),
         cgroup_root: config.cgroup_root.clone().into(),
         default_compile_time_limit_ms: 10_000,
@@ -33,10 +32,7 @@ async fn build_engine(config: &WorkerConfig) -> Arc<dyn ExecutionEngine> {
         total_cpu_cores: config.engine_total_cpu_cores,
         total_memory_bytes: config.engine_total_memory_mb * 1024 * 1024,
     };
-    let engine = codexec_exec_engine::ContainerdExecutionEngine::connect(engine_config)
-        .await
-        .expect("failed to connect to containerd");
-    Arc::new(engine)
+    Arc::new(codexec_exec_engine::RuncExecutionEngine::new(engine_config))
 }
 
 fn build_request(run_id: Uuid, submission: &Submission, language: &Language) -> ExecutionRequest {
@@ -373,7 +369,7 @@ async fn main() -> anyhow::Result<()> {
     registry::spawn_control_subscriber(registry.clone(), nats.clone());
     registry::spawn_periodic_refresh(registry.clone(), Duration::from_secs(60));
 
-    let engine = build_engine(&config).await;
+    let engine = build_engine(&config);
     let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
     let worker_id = format!("{}-{}", hostname(), Uuid::new_v4());
 

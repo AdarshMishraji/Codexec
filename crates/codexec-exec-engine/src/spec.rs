@@ -5,14 +5,18 @@ use oci_spec::runtime::{
     LinuxBuilder, LinuxCpuBuilder, LinuxMemoryBuilder, LinuxPidsBuilder, LinuxResourcesBuilder, MountBuilder,
     ProcessBuilder, RootBuilder, SpecBuilder,
 };
+use std::path::Path;
 
-/// Builds the OCI runtime spec for one submission's container: read-only
-/// image root (all writes go through the bind-mounted /sandbox, which the
-/// worker fully controls and cleans up), cgroup limits derived from the
-/// request (cpu_limit_cores -> quota/period rate cap; memory_limit_kb ->
-/// hard memory.max), and an explicit cgroupsPath so the caller can locate
-/// the same cgroup afterward for stats.
-pub fn build_spec(req: &ExecutionRequest, ws: &RunWorkspace, cgroups_path: &str) -> Result<String, EngineError> {
+/// Builds the OCI runtime spec for one submission's container: a
+/// read-only, shared image rootfs (all writes go through the bind-mounted
+/// /sandbox, which the worker fully controls and cleans up - since nothing
+/// ever writes to the image root, every concurrent submission for the same
+/// language can safely point `root.path` at the exact same unpacked
+/// directory, no per-run copy or overlay needed), cgroup limits derived
+/// from the request (cpu_limit_cores -> quota/period rate cap;
+/// memory_limit_kb -> hard memory.max), and an explicit cgroupsPath so the
+/// caller can locate the same cgroup afterward for stats.
+pub fn build_spec(req: &ExecutionRequest, ws: &RunWorkspace, rootfs: &Path, cgroups_path: &str) -> Result<String, EngineError> {
     let period_us: u64 = 100_000;
     let quota_us: i64 = (req.cpu_limit_cores * period_us as f64).round() as i64;
 
@@ -69,7 +73,7 @@ pub fn build_spec(req: &ExecutionRequest, ws: &RunWorkspace, cgroups_path: &str)
 
     let spec = SpecBuilder::default()
         .process(process)
-        .root(RootBuilder::default().path("rootfs").readonly(true).build().map_err(|e| EngineError::Internal(e.to_string()))?)
+        .root(RootBuilder::default().path(rootfs).readonly(true).build().map_err(|e| EngineError::Internal(e.to_string()))?)
         .hostname("codexec")
         .mounts(mounts)
         .linux(linux)

@@ -1,21 +1,12 @@
-# Dev/test image only: bundles containerd + runc alongside codexec-worker so
-# the real containerd-backed execution engine can be exercised on a dev
-# machine (e.g. macOS via colima/Docker Desktop) without a bare-metal Linux
-# host. Worker and containerd run as sibling processes in this SAME
-# container, sharing one mount/cgroup namespace by design — that's what
-# makes the OCI spec's cgroupsPath (set by codexec-exec-engine) and the
-# workspace bind-mount resolve identically for both the process that
-# creates them (containerd/runc) and the process that reads them back
-# (codexec-worker's cgroup stats reader). Splitting them into separate
-# containers would require sharing the host cgroup namespace across
-# siblings, which is unnecessary complexity for a dev/test setup.
+# Dev/test image: bundles runc + skopeo + umoci alongside codexec-worker so
+# the real execution engine can be exercised on a dev machine (e.g. macOS
+# via colima/Docker Desktop) without a bare-metal Linux host. No daemon at
+# all - runc is a plain subprocess per submission, skopeo/umoci are only
+# invoked by codexec-plugin-cli at registration time, not on the
+# submission hot path.
 
 FROM rust:1-bookworm AS builder
 WORKDIR /build
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock* ./
 COPY crates crates
@@ -26,10 +17,20 @@ RUN cargo build --release -p codexec-worker -p codexec-plugin-cli
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    containerd \
     runc \
+    skopeo \
     ca-certificates \
+    curl \
+    tini \
     && rm -rf /var/lib/apt/lists/*
+
+# umoci isn't packaged for Debian bookworm - install the pinned upstream
+# static binary directly.
+ARG UMOCI_VERSION=0.6.0
+RUN ARCH="$(dpkg --print-architecture)" && \
+    curl -fsSL -o /usr/local/bin/umoci \
+        "https://github.com/opencontainers/umoci/releases/download/v${UMOCI_VERSION}/umoci.linux.${ARCH}" && \
+    chmod +x /usr/local/bin/umoci
 
 COPY --from=builder /build/target/release/codexec-worker /usr/local/bin/codexec-worker
 COPY --from=builder /build/target/release/codexec-plugin-cli /usr/local/bin/codexec-plugin-cli
@@ -41,4 +42,13 @@ RUN chmod +x /usr/local/bin/worker-entrypoint.sh
 WORKDIR /app
 COPY plugins ./plugins
 
-ENTRYPOINT ["/usr/local/bin/worker-entrypoint.sh"]
+# `runc create`/`start` fork a container-init process that, once that
+# short-lived runc CLI invocation exits, gets reparented to this
+# container's PID 1. Without a real init there to reap it, it becomes a
+# zombie the moment the container's own process exits - which still holds
+# cgroup membership (blocking cleanup) and confuses runc's own state
+# reporting (a zombie PID still responds to a liveness check, so runc
+# never observes the container as "stopped"). tini is PID 1 instead of
+# codexec-worker specifically so it reaps every reparented orphan, not
+# just codexec-worker's own direct children.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/worker-entrypoint.sh"]

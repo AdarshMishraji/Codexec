@@ -1,129 +1,121 @@
 use crate::error::EngineError;
-use containerd_client::services::v1::{
-    content_client::ContentClient, images_client::ImagesClient, GetImageRequest, ReadContentRequest,
-};
-use containerd_client::{tonic::transport::Channel, tonic::Request, with_namespace};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+use tokio::process::Command;
 
-#[derive(Deserialize)]
-struct OciDescriptor {
-    digest: String,
+pub struct PullOutcome {
+    pub rootfs: PathBuf,
+    /// `false` if this was a no-op because the image was already cached.
+    pub pulled: bool,
 }
 
-#[derive(Deserialize)]
-struct OciManifest {
-    config: OciDescriptor,
+/// Where a plugin image gets pulled from. `Registry` covers any real
+/// registry pull (`docker.io/...`, a self-hosted registry, ECR/GHCR/etc);
+/// `DockerDaemon` reads directly from a local Docker daemon's image store
+/// (no registry needed) - useful for local dev/testing of custom-built
+/// plugin images before they're pushed anywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageSource {
+    Registry,
+    DockerDaemon,
 }
 
-#[derive(Deserialize)]
-struct OciRootfs {
-    diff_ids: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct OciImageConfig {
-    rootfs: OciRootfs,
-}
-
-#[derive(Deserialize)]
-struct OciPlatform {
-    architecture: String,
-    os: String,
-}
-
-#[derive(Deserialize)]
-struct OciIndexEntry {
-    digest: String,
-    platform: Option<OciPlatform>,
-}
-
-#[derive(Deserialize)]
-struct OciIndex {
-    manifests: Vec<OciIndexEntry>,
-}
-
-/// Maps Rust's `std::env::consts::ARCH` to the OCI platform architecture
-/// string used in image index/manifest-list entries (e.g. "aarch64" ->
-/// "arm64"). Falls back to the Rust name unchanged for architectures where
-/// the two already agree (e.g. "amd64" callers would need to map from
-/// "x86_64" - handled explicitly below).
-fn oci_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "amd64",
-        "aarch64" => "arm64",
-        other => other,
+impl ImageSource {
+    fn skopeo_source(self, image_ref: &str) -> String {
+        match self {
+            ImageSource::Registry => format!("docker://{image_ref}"),
+            ImageSource::DockerDaemon => format!("docker-daemon:{image_ref}"),
+        }
     }
 }
 
-/// Resolves an already-pulled image reference to its chain ID, per the
-/// OCI image spec algorithm: chain[0]=diff[0], chain[i]=sha256("<chain[i-1]>
-/// <diff[i]>"). The chain ID is what `Snapshots.Prepare` needs as `parent`
-/// to hand back a usable rootfs for a new container.
-pub async fn resolve_chain_id(channel: Channel, ns: &str, image_ref: &str) -> Result<String, EngineError> {
-    let mut images = ImagesClient::new(channel.clone());
-    let resp = images
-        .get(with_namespace!(GetImageRequest { name: image_ref.into() }, ns))
-        .await?
-        .into_inner();
-    let target = resp
-        .image
-        .ok_or_else(|| EngineError::ImageNotFound(image_ref.to_string()))?
-        .target
-        .ok_or_else(|| EngineError::Internal(format!("image {image_ref} has no target descriptor")))?;
+/// Deterministic, filesystem-safe cache key for an image reference. Two
+/// different refs must never collide, and re-registering the same ref
+/// must always resolve back to the same directory (so re-pulling refreshes
+/// it in place rather than accumulating stale copies).
+fn image_key(image_ref: &str) -> String {
+    image_ref.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
+}
 
-    let mut content = ContentClient::new(channel.clone());
-    let root_bytes = read_content_fully(&mut content, ns, &target.digest).await?;
+fn oci_layout_dir(cache_root: &Path, image_ref: &str) -> PathBuf {
+    cache_root.join(format!("{}.ocilayout", image_key(image_ref)))
+}
 
-    // A tag like "busybox:latest" commonly resolves to a multi-arch image
-    // INDEX (or Docker manifest list) rather than a single-platform
-    // manifest directly — it has a `manifests` array, not `config`. Detect
-    // that case and follow it down to the manifest for our own platform
-    // before looking for `config`/`rootfs.diff_ids`.
-    let root_value: serde_json::Value = serde_json::from_slice(&root_bytes)?;
-    let manifest_bytes = if root_value.get("manifests").is_some() {
-        let index: OciIndex = serde_json::from_value(root_value)?;
-        let arch = oci_arch();
-        let entry = index
-            .manifests
-            .iter()
-            .find(|m| m.platform.as_ref().is_some_and(|p| p.architecture == arch && p.os == "linux"))
-            .ok_or_else(|| {
-                EngineError::Internal(format!("image {image_ref} has no manifest for platform linux/{arch}"))
-            })?;
-        read_content_fully(&mut content, ns, &entry.digest).await?
+fn bundle_dir(cache_root: &Path, image_ref: &str) -> PathBuf {
+    cache_root.join(format!("{}.bundle", image_key(image_ref)))
+}
+
+/// Marks a bundle directory as fully unpacked - guards against a worker
+/// treating a partially-written directory (crash mid-unpack) as ready.
+fn complete_marker(cache_root: &Path, image_ref: &str) -> PathBuf {
+    bundle_dir(cache_root, image_ref).join(".codexec-complete")
+}
+
+/// The engine's only entry point into image handling: is this image ready
+/// to run against? Never pulls - `codexec-plugin-cli` (`pull_and_unpack`,
+/// below) is the only thing that populates the cache, at registration
+/// time, so per-submission latency never includes a pull.
+pub async fn ensure_present(cache_root: &Path, image_ref: &str) -> Result<PathBuf, EngineError> {
+    let rootfs = bundle_dir(cache_root, image_ref).join("rootfs");
+    if tokio::fs::try_exists(complete_marker(cache_root, image_ref)).await.unwrap_or(false) {
+        Ok(rootfs)
     } else {
-        root_bytes
-    };
-
-    let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)?;
-    let config_bytes = read_content_fully(&mut content, ns, &manifest.config.digest).await?;
-    let config: OciImageConfig = serde_json::from_slice(&config_bytes)?;
-
-    let mut chain: Option<String> = None;
-    for diff_id in &config.rootfs.diff_ids {
-        chain = Some(match chain {
-            None => diff_id.clone(),
-            Some(prev) => {
-                let mut h = Sha256::new();
-                h.update(format!("{prev} {diff_id}").as_bytes());
-                format!("sha256:{:x}", h.finalize())
-            }
-        });
+        Err(EngineError::ImageNotFound(image_ref.to_string()))
     }
-    chain.ok_or_else(|| EngineError::Internal(format!("image {image_ref} has empty rootfs")))
 }
 
-async fn read_content_fully(
-    client: &mut ContentClient<Channel>,
-    ns: &str,
-    digest: &str,
-) -> Result<Vec<u8>, EngineError> {
-    let req = with_namespace!(ReadContentRequest { digest: digest.into(), offset: 0, size: 0 }, ns);
-    let mut stream = client.read(req).await?.into_inner();
-    let mut buf = Vec::new();
-    while let Some(chunk) = stream.message().await? {
-        buf.extend_from_slice(&chunk.data);
+async fn run(program: &str, args: &[&str]) -> Result<(), EngineError> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| EngineError::ImagePull(format!("failed to exec {program}: {e}")))?;
+    if !output.status.success() {
+        return Err(EngineError::ImagePull(format!(
+            "{program} {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
-    Ok(buf)
+    Ok(())
+}
+
+/// Pulls `image_ref` (via `skopeo`) and unpacks it (via `umoci`) into a
+/// plain rootfs directory under `cache_root`, shared read-only across
+/// every future submission for this image.
+///
+/// Idempotent by default: if this exact ref was already pulled+unpacked
+/// (the completion marker is present), this is a no-op that just returns
+/// the existing rootfs path - re-running `codexec-plugin-cli register`
+/// to update a language's limits/commands shouldn't re-download a
+/// multi-hundred-MB image every time. Pass `force: true` to explicitly
+/// refresh (a moved tag, or a custom image rebuilt under the same name).
+pub async fn pull_and_unpack(
+    cache_root: &Path,
+    image_ref: &str,
+    source: ImageSource,
+    force: bool,
+) -> Result<PullOutcome, EngineError> {
+    let rootfs = bundle_dir(cache_root, image_ref).join("rootfs");
+    if !force && tokio::fs::try_exists(complete_marker(cache_root, image_ref)).await.unwrap_or(false) {
+        return Ok(PullOutcome { rootfs, pulled: false });
+    }
+
+    tokio::fs::create_dir_all(cache_root).await?;
+
+    let layout_dir = oci_layout_dir(cache_root, image_ref);
+    let bundle = bundle_dir(cache_root, image_ref);
+    // Clean slate: umoci refuses to unpack into a non-empty directory, and
+    // we want a stale rootfs fully gone rather than merged with a new one.
+    let _ = tokio::fs::remove_dir_all(&layout_dir).await;
+    let _ = tokio::fs::remove_dir_all(&bundle).await;
+
+    let src = source.skopeo_source(image_ref);
+    let dest = format!("oci:{}:image", layout_dir.display());
+    run("skopeo", &["copy", &src, &dest]).await?;
+
+    let image_arg = format!("{}:image", layout_dir.display());
+    let bundle_arg = bundle.display().to_string();
+    run("umoci", &["unpack", "--image", &image_arg, &bundle_arg]).await?;
+
+    tokio::fs::write(complete_marker(cache_root, image_ref), b"").await?;
+    Ok(PullOutcome { rootfs: bundle.join("rootfs"), pulled: true })
 }

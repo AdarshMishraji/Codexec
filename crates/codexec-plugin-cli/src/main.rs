@@ -1,6 +1,8 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use codexec_common::registry::{self, PluginManifest};
+use codexec_exec_engine::image::{self, ImageSource};
 use sqlx::postgres::PgPoolOptions;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "codexec-plugin-cli", about = "Register and manage codexec language plugins")]
@@ -9,12 +11,51 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
+enum SourceArg {
+    /// Pull from a real registry (docker.io, a self-hosted registry, etc).
+    Registry,
+    /// Read directly from a local Docker daemon's image store - for a
+    /// custom-built plugin image you haven't pushed anywhere yet.
+    DockerDaemon,
+}
+
+impl From<SourceArg> for ImageSource {
+    fn from(s: SourceArg) -> Self {
+        match s {
+            SourceArg::Registry => ImageSource::Registry,
+            SourceArg::DockerDaemon => ImageSource::DockerDaemon,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Register or update a language plugin from a manifest file.
     Register {
         #[arg(long)]
         manifest: String,
+        #[arg(long, value_enum, default_value_t = SourceArg::Registry)]
+        source: SourceArg,
+        /// Re-pull and re-unpack the image even if it's already cached
+        /// (e.g. a moved tag, or a custom image rebuilt under the same
+        /// name). Without this, an already-present image is left as-is.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Pre-pull+unpack a single image into the shared rootfs cache,
+    /// without touching Postgres/NATS at all. Useful for fleet
+    /// provisioning scripts that only have a list of image refs (e.g.
+    /// from `GET /admin/languages`), not full plugin manifests, and for
+    /// hosts that shouldn't need DB credentials just to warm the image
+    /// cache before `codexec-worker` starts accepting work.
+    PullImage {
+        #[arg(long)]
+        image_ref: String,
+        #[arg(long, value_enum, default_value_t = SourceArg::Registry)]
+        source: SourceArg,
+        #[arg(long)]
+        force: bool,
     },
     /// Activate a previously registered language.
     Activate {
@@ -30,38 +71,23 @@ enum Command {
     List,
 }
 
-/// Pre-pulls an image into containerd's content/image store ahead of
-/// submission time, so per-submission latency only involves container
-/// create+start+wait+delete, not image pull. Shells out to `ctr` (the
-/// standard containerd CLI, present alongside containerd in the worker's
-/// container image) rather than reimplementing image transfer over gRPC —
-/// this is an operator-run, dev-tooling path, not a hot path, so the
-/// simplicity of shelling out to the reference tool wins over a bespoke
-/// Rust implementation of resolve/fetch/unpack.
-fn pull_image(image_ref: &str) -> anyhow::Result<()> {
-    let socket = std::env::var("CONTAINERD_SOCKET_PATH")
-        .unwrap_or_else(|_| "/run/containerd/containerd.sock".to_string());
-    let namespace = std::env::var("CONTAINERD_NAMESPACE").unwrap_or_else(|_| "codexec".to_string());
-
-    println!("pulling {image_ref} into containerd (namespace={namespace})...");
-    let status = std::process::Command::new("ctr")
-        .args(["-a", &socket, "-n", &namespace, "image", "pull", image_ref])
-        .status();
-
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        Ok(s) => anyhow::bail!("ctr image pull exited with status {s}"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::warn!(
-                "`ctr` not found on PATH; skipping image pre-pull for {image_ref}. \
-                 Run this command inside the containerd-equipped worker container \
-                 (e.g. `docker compose exec worker codexec-plugin-cli register ...`), \
-                 or pull the image manually before submissions against this language will work."
-            );
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
+/// Pre-pulls and unpacks an image into the shared rootfs cache ahead of
+/// submission time (via `skopeo` + `umoci` - see
+/// `codexec_exec_engine::image`), so per-submission latency never includes
+/// a pull. Must write to the exact `IMAGE_CACHE_ROOT` the worker reads
+/// from - both default to the same path, but keep them in sync if you
+/// override one. Idempotent unless `force` is set - see
+/// `image::pull_and_unpack`.
+async fn pull_image(image_ref: &str, source: ImageSource, force: bool) -> anyhow::Result<()> {
+    let cache_root: PathBuf =
+        std::env::var("IMAGE_CACHE_ROOT").unwrap_or_else(|_| "/var/lib/codexec/images".to_string()).into();
+    let outcome = image::pull_and_unpack(&cache_root, image_ref, source, force).await?;
+    if outcome.pulled {
+        println!("pulled {image_ref} (source={source:?})");
+    } else {
+        println!("{image_ref} already present in cache, skipping pull (use --force to refresh)");
     }
+    Ok(())
 }
 
 #[tokio::main]
@@ -70,6 +96,15 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
+
+    // PullImage is a pure image-cache operation - deliberately doesn't
+    // need DATABASE_URL/NATS_URL at all, so a fleet-provisioning host can
+    // warm the image cache without DB credentials.
+    if let Command::PullImage { image_ref, source, force } = &cli.command {
+        pull_image(image_ref, (*source).into(), *force).await?;
+        return Ok(());
+    }
+
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
 
@@ -80,13 +115,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Command::Register { manifest } => {
+        Command::Register { manifest, source, force } => {
             let contents = std::fs::read_to_string(&manifest)?;
             let manifest = PluginManifest::from_toml_str(&contents)?;
-            pull_image(&manifest.image.reference)?;
+            pull_image(&manifest.image.reference, source.into(), force).await?;
             let language = registry::register_language(&pool, nats.as_ref(), &manifest).await?;
             println!("registered {} ({}) -> {}", language.slug, language.version, language.image_ref);
         }
+        Command::PullImage { .. } => unreachable!("handled above"),
         Command::Activate { slug } => {
             match registry::set_active(&pool, nats.as_ref(), &slug, true).await? {
                 Some(lang) => println!("activated {}", lang.slug),
