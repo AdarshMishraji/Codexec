@@ -1,4 +1,4 @@
-FROM eclipse-temurin:25-jdk
+FROM eclipse-temurin:25-jdk-alpine
 
 RUN ln -s /opt/java/openjdk/bin/java /usr/local/bin/java && \
     ln -s /opt/java/openjdk/bin/javac /usr/local/bin/javac

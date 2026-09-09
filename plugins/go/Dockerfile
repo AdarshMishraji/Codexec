@@ -1,4 +1,4 @@
-FROM golang:1.23
+FROM golang:1.23-alpine
 
 RUN ln -s /usr/local/go/bin/go /usr/local/bin/go
 

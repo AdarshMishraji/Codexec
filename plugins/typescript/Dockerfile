@@ -1,4 +1,4 @@
-FROM node:22.14.0-slim
+FROM node:22.14.0-alpine
 
 RUN npm install -g --no-save typescript@5.7.3
 

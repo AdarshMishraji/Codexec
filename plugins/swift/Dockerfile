@@ -51,3 +51,13 @@ RUN mkdir -p /opt/swift-libs/lib /opt/swift-libs/modules /opt/swift-libs/include
 # _NumericsShims (a math-shim target, not a pure Swift module) by name, so
 # the ClangImporter needs its module.modulemap findable via an -I path at
 # submission compile time too - not just the Swift .swiftmodule files.
+#
+# No smaller base image for this one: swift:6.0-jammy-slim (the official
+# "runtime" variant, ~1/10th the size) was tried and rejected - it ships
+# only the stdlib .swiftmodule files and shared runtime libs for *running*
+# an already-compiled binary, not swiftc itself (confirmed by testing:
+# `swiftc` doesn't exist anywhere in that image). Since submissions are
+# compiled per-request inside this same container, the compiler has to be
+# present at runtime, not just at image-build time - unlike Go/Rust/Kotlin
+# elsewhere in this repo, there's no leaner official variant that still
+# includes the compiler.

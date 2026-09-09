@@ -1,4 +1,4 @@
-FROM node:22.14.0-slim
+FROM node:22.14.0-alpine
 
 RUN mkdir -p /opt/codexec/node_modules && \
     npm install --prefix /opt/codexec --no-save \
