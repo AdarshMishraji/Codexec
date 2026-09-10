@@ -1,0 +1,48 @@
+# C# - 14, on the .NET 10.0 runtime. Submissions are a single main.cs
+# compiled directly with `csc` (Roslyn), not `dotnet build` - see
+# Dockerfile for why: `dotnet build`/`run` unconditionally try to create a
+# named Mutex backed by a file under /tmp (hardcoded, ignores TMPDIR),
+# which fails outright on this sandbox's read-only rootfs. `dotnet exec
+# <csc.dll>` and plain `dotnet <dll>` both avoid that code path entirely.
+#
+# compile_cmd resolves the compiler and reference-assembly paths via shell
+# globs (sh -c) rather than hardcoding the SDK's version number (currently
+# 10.0.401), the same way the Rust plugin resolves its content-hashed
+# .rlib filenames - so a base-image SDK patch bump doesn't silently break
+# this manifest. -langversion:latest tracks whatever C# version this SDK
+# ships (C# 14 for .NET 10.0, as documented) rather than pinning a number
+# that would need bumping in lockstep with the image tag.
+#
+# After a successful compile, compile_cmd also copies the fixed
+# main.runtimeconfig.json baked into the image (see Dockerfile) next to
+# the compiled main.dll - `dotnet <dll>` needs it alongside the dll to
+# resolve which shared runtime to launch against, and `csc` alone (unlike
+# `dotnet build`) never generates one.
+#
+# Verified end-to-end against codexec/csharp:1.0.0 with `docker run
+# --read-only` + PATH-only env, matching the real sandbox's process spec
+# exactly (see spec.rs), with no HOME/TMPDIR overrides needed anywhere:
+# LINQ (`Select`), a `record` type with its synthesized ToString, string
+# interpolation, and stdin all compiled and ran correctly. Compile time
+# measured at well under 1 second.
+[language]
+slug = "csharp"
+display_name = "C# 14 (.NET 10.0)"
+version = "10.0.401"
+
+[image]
+reference = "codexec/csharp:1.0.0"
+
+[commands]
+compile_cmd = ["sh", "-c", "CSCDLL=$(ls /usr/share/dotnet/sdk/*/Roslyn/bincore/csc.dll) && REFDIR=$(ls -d /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/*/ref/net10.0) && dotnet exec \"$CSCDLL\" -nologo -optimize+ -langversion:latest -target:exe $(for f in \"$REFDIR\"/*.dll; do printf -- '-r:%s ' \"$f\"; done) -out:main.dll main.cs && cp /opt/codexec/main.runtimeconfig.json main.runtimeconfig.json"]
+run_cmd = ["sh", "-c", "exec dotnet main.dll"]
+source_filename = "main.cs"
+compile_time_limit_ms = 10000
+
+[limits]
+default_cpu_time_limit_ms = 2000
+default_cpu_limit_cores = 1.0
+default_memory_limit_kb = 262144
+max_cpu_time_limit_ms = 10000
+max_cpu_limit_cores = 2.0
+max_memory_limit_kb = 1048576
