@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>codexec — Platform Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0d14;
+    --bg-elevated: #11151f;
+    --card: #131826;
+    --card-border: #212838;
+    --text: #e8ecf4;
+    --text-dim: #8892a6;
+    --text-faint: #5b6478;
+    --accent: #6d8dff;
+    --accent-soft: rgba(109, 141, 255, 0.14);
+    --green: #3ddc97;
+    --amber: #f5b942;
+    --red: #ff6b6b;
+    --purple: #b88cff;
+    --cyan: #4fd8e8;
+    --blue: #5b9dff;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(ellipse 1200px 600px at 15% -10%, rgba(109, 141, 255, 0.12), transparent),
+      radial-gradient(ellipse 900px 500px at 100% 0%, rgba(184, 140, 255, 0.08), transparent);
+    background-attachment: fixed;
+  }
+
+  .wrap {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 32px 28px 64px;
+  }
+
+  header.top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 17px;
+    color: #0a0d14;
+    box-shadow: 0 4px 16px -4px rgba(109, 141, 255, 0.5);
+  }
+
+  .brand h1 {
+    font-size: 19px;
+    font-weight: 650;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .brand span.sub {
+    display: block;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-top: 1px;
+  }
+
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    padding: 7px 12px 7px 10px;
+    border-radius: 999px;
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.6);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.55); }
+    70% { box-shadow: 0 0 0 7px rgba(61, 220, 151, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0); }
+  }
+
+  a.admin-link {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-decoration: none;
+    border: 1px solid var(--card-border);
+    padding: 8px 14px;
+    border-radius: 9px;
+    transition: all 0.15s ease;
+  }
+  a.admin-link:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  .kpi {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .kpi .label {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+  }
+
+  .kpi .value {
+    font-size: 27px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .kpi .value.small { font-size: 21px; }
+
+  .kpi .meta {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .kpi .meta.pos { color: var(--green); }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .charts-grid.secondary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 20px 22px 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .panel h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 16px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .panel h2 .hint {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+
+  .chart-box { position: relative; height: 240px; }
+  .chart-box.tall { height: 280px; }
+
+  table.recent {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  table.recent th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    font-weight: 600;
+    padding: 0 12px 10px;
+    border-bottom: 1px solid var(--card-border);
+  }
+
+  table.recent td {
+    padding: 11px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  table.recent tbody tr:hover { background: rgba(255, 255, 255, 0.015); }
+  table.recent tbody tr:last-child td { border-bottom: none; }
+
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.3px; color: var(--text-dim); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .badge.completed { background: rgba(61, 220, 151, 0.13); color: var(--green); }
+  .badge.queued, .badge.processing { background: rgba(91, 157, 255, 0.13); color: var(--blue); }
+  .badge.compile_error, .badge.runtime_error, .badge.internal_error { background: rgba(255, 107, 107, 0.13); color: var(--red); }
+  .badge.time_limit_exceeded, .badge.memory_limit_exceeded { background: rgba(245, 185, 66, 0.14); color: var(--amber); }
+
+  .verdict-tag { font-size: 11.5px; font-weight: 600; }
+  .verdict-tag.accepted { color: var(--green); }
+  .verdict-tag.wrong_answer { color: var(--red); }
+  .verdict-tag.none { color: var(--text-faint); }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-faint);
+    font-size: 13px;
+  }
+
+  footer.page {
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 12px;
+    margin-top: 36px;
+  }
+
+  @media (max-width: 1100px) {
+    .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+    .charts-grid, .charts-grid.secondary { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 620px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .wrap { padding: 20px 14px 48px; }
+  }
+
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="brand">
+        <div class="brand-mark">C</div>
+        <div>
+          <h1>codexec</h1>
+          <span class="sub">Code execution platform — live statistics</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="live-pill"><span class="live-dot"></span> <span id="refresh-label">live</span></span>
+        <a class="admin-link" href="/admin">Admin Portal →</a>
+      </div>
+    </header>
+
+    <section class="kpi-grid" id="kpi-grid"></section>
+
+    <section class="charts-grid">
+      <div class="panel">
+        <h2>Submissions — last 14 days <span class="hint" id="trend-hint"></span></h2>
+        <div class="chart-box tall"><canvas id="chart-trend"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Status breakdown</h2>
+        <div class="chart-box tall"><canvas id="chart-status"></canvas></div>
+      </div>
+    </section>
+
+    <section class="charts-grid secondary">
+      <div class="panel">
+        <h2>Submissions by language</h2>
+        <div class="chart-box"><canvas id="chart-lang"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Verdicts <span class="hint">graded submissions only</span></h2>
+        <div class="chart-box"><canvas id="chart-verdict"></canvas></div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom: 16px;">
+      <h2>Recent submissions <span class="hint">metadata only — no source or output</span></h2>
+      <div id="recent-wrap"></div>
+    </section>
+
+    <footer class="page">codexec platform dashboard · refreshes automatically every 15s</footer>
+  </div>
+
+<script>
+const STATUS_LABELS = {
+  queued: "Queued", processing: "Processing", completed: "Completed",
+  compile_error: "Compile Error", runtime_error: "Runtime Error",
+  time_limit_exceeded: "Time Limit Exceeded", memory_limit_exceeded: "Memory Limit Exceeded",
+  internal_error: "Internal Error",
+};
+const STATUS_COLORS = {
+  queued: "#5b9dff", processing: "#4fd8e8", completed: "#3ddc97",
+  compile_error: "#ff6b6b", runtime_error: "#ff6b6b",
+  time_limit_exceeded: "#f5b942", memory_limit_exceeded: "#b88cff",
+  internal_error: "#8892a6",
+};
+const LANG_PALETTE = ["#6d8dff", "#3ddc97", "#f5b942", "#b88cff", "#4fd8e8", "#ff6b6b", "#5b9dff", "#e879f9"];
+
+let charts = {};
+
+function fmtNum(n) {
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat().format(n);
+}
+function fmtMs(n) {
+  if (n === null || n === undefined) return "—";
+  if (n < 1000) return n.toFixed(1) + " ms";
+  return (n / 1000).toFixed(2) + " s";
+}
+function fmtKb(n) {
+  if (n === null || n === undefined) return "—";
+  if (n < 1024) return n.toFixed(0) + " KB";
+  return (n / 1024).toFixed(1) + " MB";
+}
+function fmtPct(n) { return (n === null || n === undefined) ? "—" : n.toFixed(1) + "%"; }
+function timeAgo(iso) {
+  if (!iso) return "—";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return Math.max(0, Math.floor(diff)) + "s ago";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+}
+
+function kpiCard(label, value, meta, metaClass) {
+  return `<div class="kpi">
+    <div class="label">${label}</div>
+    <div class="value${String(value).length > 8 ? " small" : ""}">${value}</div>
+    ${meta ? `<div class="meta ${metaClass || ""}">${meta}</div>` : ""}
+  </div>`;
+}
+
+function renderKpis(s) {
+  const el = document.getElementById("kpi-grid");
+  el.innerHTML = [
+    kpiCard("Total Submissions", fmtNum(s.total_submissions), `${fmtNum(s.submissions_last_24h)} in last 24h`),
+    kpiCard("Success Rate", fmtPct(s.success_rate_pct), `${fmtNum(s.completed_submissions)} completed`, "pos"),
+    kpiCard("Active Languages", `${s.languages_active} / ${s.languages_total}`, "registered plugins"),
+    kpiCard("API Keys", `${s.api_keys_active} / ${s.api_keys_total}`, "active / total"),
+    kpiCard("Avg CPU Time", fmtMs(s.avg_cpu_time_ms), `p95 ${fmtMs(s.p95_cpu_time_ms)}`),
+    kpiCard("Avg Memory", fmtKb(s.avg_memory_kb), `wall avg ${fmtMs(s.avg_wall_time_ms)}`),
+  ].join("");
+}
+
+function upsertChart(id, config) {
+  const ctx = document.getElementById(id).getContext("2d");
+  if (charts[id]) { charts[id].destroy(); }
+  charts[id] = new Chart(ctx, config);
+}
+
+const commonGrid = { color: "rgba(255,255,255,0.05)" };
+const commonTicks = { color: "#8892a6", font: { size: 11 } };
+
+function renderTrend(daily) {
+  document.getElementById("trend-hint").textContent = `${daily.reduce((a, d) => a + d.count, 0)} total`;
+  upsertChart("chart-trend", {
+    type: "line",
+    data: {
+      labels: daily.map(d => new Date(d.day).toLocaleDateString(undefined, { month: "short", day: "numeric" })),
+      datasets: [{
+        label: "Submissions",
+        data: daily.map(d => d.count),
+        borderColor: "#6d8dff",
+        backgroundColor: (c) => {
+          const g = c.chart.ctx.createLinearGradient(0, 0, 0, 240);
+          g.addColorStop(0, "rgba(109,141,255,0.35)");
+          g.addColorStop(1, "rgba(109,141,255,0.0)");
+          return g;
+        },
+        fill: true, tension: 0.35, pointRadius: 2.5, pointBackgroundColor: "#6d8dff", borderWidth: 2.2,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: commonTicks },
+        y: { beginAtZero: true, grid: commonGrid, ticks: { ...commonTicks, precision: 0 } },
+      },
+    },
+  });
+}
+
+function renderStatus(breakdown) {
+  const wrap = document.getElementById("chart-status").parentElement;
+  if (!breakdown.length) { wrap.innerHTML = '<div class="empty-state">No submissions yet</div>'; return; }
+  upsertChart("chart-status", {
+    type: "doughnut",
+    data: {
+      labels: breakdown.map(b => STATUS_LABELS[b.status] || b.status),
+      datasets: [{
+        data: breakdown.map(b => b.count),
+        backgroundColor: breakdown.map(b => STATUS_COLORS[b.status] || "#5b6478"),
+        borderColor: "#131826", borderWidth: 3,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "68%",
+      plugins: { legend: { position: "bottom", labels: { color: "#8892a6", font: { size: 11 }, boxWidth: 10, padding: 12 } } },
+    },
+  });
+}
+
+function renderLang(breakdown) {
+  const wrap = document.getElementById("chart-lang").parentElement;
+  if (!breakdown.length) { wrap.innerHTML = '<div class="empty-state">No submissions yet</div>'; return; }
+  const top = breakdown.slice(0, 8);
+  upsertChart("chart-lang", {
+    type: "bar",
+    data: {
+      labels: top.map(b => b.display_name),
+      datasets: [{
+        data: top.map(b => b.count),
+        backgroundColor: top.map((_, i) => LANG_PALETTE[i % LANG_PALETTE.length]),
+        borderRadius: 6, maxBarThickness: 26,
+      }],
+    },
+    options: {
+      indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, grid: commonGrid, ticks: { ...commonTicks, precision: 0 } },
+        y: { grid: { display: false }, ticks: commonTicks },
+      },
+    },
+  });
+}
+
+function renderVerdict(breakdown) {
+  const wrap = document.getElementById("chart-verdict").parentElement;
+  if (!breakdown.length) { wrap.innerHTML = '<div class="empty-state">No graded submissions yet</div>'; return; }
+  const colors = { accepted: "#3ddc97", wrong_answer: "#ff6b6b" };
+  const labels = { accepted: "Accepted", wrong_answer: "Wrong Answer" };
+  upsertChart("chart-verdict", {
+    type: "doughnut",
+    data: {
+      labels: breakdown.map(b => labels[b.verdict] || b.verdict),
+      datasets: [{
+        data: breakdown.map(b => b.count),
+        backgroundColor: breakdown.map(b => colors[b.verdict] || "#5b6478"),
+        borderColor: "#131826", borderWidth: 3,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "68%",
+      plugins: { legend: { position: "bottom", labels: { color: "#8892a6", font: { size: 11 }, boxWidth: 10, padding: 12 } } },
+    },
+  });
+}
+
+function renderRecent(rows) {
+  const wrap = document.getElementById("recent-wrap");
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state">No submissions yet</div>'; return; }
+  const body = rows.map(r => `
+    <tr>
+      <td class="mono">${r.id.slice(0, 8)}</td>
+      <td>${r.language_slug}</td>
+      <td><span class="badge ${r.status}">${STATUS_LABELS[r.status] || r.status}</span></td>
+      <td><span class="verdict-tag ${r.verdict || "none"}">${r.verdict ? (r.verdict === "accepted" ? "Accepted" : "Wrong Answer") : "—"}</span></td>
+      <td>${fmtMs(r.cpu_time_used_ms)}</td>
+      <td>${fmtKb(r.memory_used_kb)}</td>
+      <td class="mono">${timeAgo(r.submitted_at)}</td>
+    </tr>`).join("");
+  wrap.innerHTML = `<div style="overflow-x:auto"><table class="recent">
+    <thead><tr><th>ID</th><th>Language</th><th>Status</th><th>Verdict</th><th>CPU Time</th><th>Memory</th><th>Submitted</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/stats");
+    if (!res.ok) throw new Error("stats fetch failed: " + res.status);
+    const s = await res.json();
+    renderKpis(s);
+    renderTrend(s.daily_trend);
+    renderStatus(s.status_breakdown);
+    renderLang(s.language_breakdown);
+    renderVerdict(s.verdict_breakdown);
+    renderRecent(s.recent_submissions);
+    document.getElementById("refresh-label").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById("refresh-label").textContent = "connection error";
+    console.error(e);
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

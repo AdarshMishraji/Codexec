@@ -1,7 +1,9 @@
 use codexec_common::models::Language;
+use codexec_exec_engine::image::{self, ImageSource};
 use futures::StreamExt;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -14,11 +16,12 @@ use tokio::sync::RwLock;
 pub struct PluginRegistry {
     inner: RwLock<HashMap<String, Language>>,
     pool: PgPool,
+    image_cache_root: PathBuf,
 }
 
 impl PluginRegistry {
-    pub async fn load(pool: PgPool) -> Result<Arc<Self>, sqlx::Error> {
-        let registry = Arc::new(Self { inner: RwLock::new(HashMap::new()), pool });
+    pub async fn load(pool: PgPool, image_cache_root: PathBuf) -> Result<Arc<Self>, sqlx::Error> {
+        let registry = Arc::new(Self { inner: RwLock::new(HashMap::new()), pool, image_cache_root });
         registry.refresh_all().await?;
         Ok(registry)
     }
@@ -27,10 +30,13 @@ impl PluginRegistry {
         let languages: Vec<Language> =
             sqlx::query_as("SELECT * FROM languages WHERE is_active").fetch_all(&self.pool).await?;
         let mut map = HashMap::new();
-        for lang in languages {
-            map.insert(lang.slug.clone(), lang);
+        for lang in &languages {
+            map.insert(lang.slug.clone(), lang.clone());
         }
         *self.inner.write().await = map;
+        for lang in languages {
+            self.ensure_image_cached(lang);
+        }
         Ok(())
     }
 
@@ -39,7 +45,8 @@ impl PluginRegistry {
             sqlx::query_as("SELECT * FROM languages WHERE slug = $1 AND is_active").bind(slug).fetch_optional(&self.pool).await;
         match language {
             Ok(Some(lang)) => {
-                self.inner.write().await.insert(slug.to_string(), lang);
+                self.inner.write().await.insert(slug.to_string(), lang.clone());
+                self.ensure_image_cached(lang);
             }
             Ok(None) => {
                 self.inner.write().await.remove(slug);
@@ -48,6 +55,41 @@ impl PluginRegistry {
                 tracing::warn!(slug, error = %e, "failed to refresh language from control-subject hint");
             }
         }
+    }
+
+    /// A plugin registered (or reactivated) via the admin API only writes
+    /// the DB row — unlike `codexec-plugin-cli register`, it has no way to
+    /// run `skopeo`/`umoci` itself (the API server doesn't necessarily
+    /// have them, and may not even be on the same host as any worker). So
+    /// every worker checks, on its own image cache, whenever a language
+    /// changes: if the image isn't already unpacked, pull it here instead
+    /// - registry-source only, since that's the one thing every worker
+    /// host can reach unconditionally (a custom image only in someone's
+    /// local Docker daemon still needs `codexec-plugin-cli register
+    /// --source docker-daemon` run explicitly, same as before). Spawned
+    /// as a background task so a slow/failed pull never blocks the
+    /// registry refresh loop (control-subject messages, periodic
+    /// refresh) from moving on to the next language.
+    fn ensure_image_cached(&self, language: Language) {
+        let cache_root = self.image_cache_root.clone();
+        tokio::spawn(async move {
+            if image::ensure_present(&cache_root, &language.image_ref).await.is_ok() {
+                return;
+            }
+            tracing::info!(
+                slug = %language.slug, image_ref = %language.image_ref,
+                "image not yet cached on this worker, pulling in background"
+            );
+            match image::pull_and_unpack(&cache_root, &language.image_ref, ImageSource::Registry, false).await {
+                Ok(_) => tracing::info!(slug = %language.slug, "background image pull completed"),
+                Err(e) => tracing::warn!(
+                    slug = %language.slug, image_ref = %language.image_ref, error = %e,
+                    "automatic image pull failed - submissions for this language will fail with \
+                     an internal error until the image is available on this worker (e.g. run \
+                     `codexec-plugin-cli register --source docker-daemon` for a locally-built image)"
+                ),
+            }
+        });
     }
 
     pub async fn get(&self, slug: &str) -> Option<Language> {

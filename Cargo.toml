@@ -31,6 +31,7 @@ tower-http = { version = "0.5", features = ["trace", "cors"] }
 async-nats = "0.37"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
+sha2 = "0.10"
 codexec-common = { path = "crates/codexec-common" }
 codexec-exec-contract = { path = "crates/codexec-exec-contract" }
 codexec-exec-engine = { path = "crates/codexec-exec-engine" }

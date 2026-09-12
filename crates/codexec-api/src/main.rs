@@ -1,18 +1,26 @@
 mod admin_auth;
+mod api_key_auth;
+mod api_keys;
 mod config;
 mod error;
 mod languages;
+mod plugin_templates;
 mod state;
+mod stats;
 mod submissions;
 
 use axum::middleware;
-use axum::routing::{get, post};
+use axum::response::Html;
+use axum::routing::{delete, get, post};
 use axum::Router;
 use config::ApiConfig;
 use sqlx::postgres::PgPoolOptions;
 use state::AppState;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
+
+const DASHBOARD_HTML: &str = include_str!("../assets/dashboard.html");
+const ADMIN_HTML: &str = include_str!("../assets/admin.html");
 
 const SUBMISSIONS_STREAM: &str = "SUBMISSIONS";
 
@@ -51,14 +59,26 @@ async fn main() -> anyhow::Result<()> {
 
     let admin_routes = Router::new()
         .route("/languages", get(languages::list_admin).post(languages::register))
+        .route("/languages/:slug", delete(languages::remove))
         .route("/languages/:slug/activate", post(languages::activate))
         .route("/languages/:slug/deactivate", post(languages::deactivate))
-        .layer(middleware::from_fn_with_state(state.clone(), admin_auth::require_admin_token));
+        .route("/api-keys", get(api_keys::list).post(api_keys::create))
+        .route("/api-keys/:id", delete(api_keys::remove))
+        .route("/plugin-templates", get(plugin_templates::list))
+        .route("/plugin-templates/:slug", get(plugin_templates::get_one))
+        .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth::require_admin_token));
 
-    let app = Router::new()
+    let submission_routes = Router::new()
         .route("/submissions", post(submissions::create_submission))
         .route("/submissions/:id", get(submissions::get_submission))
+        .route_layer(middleware::from_fn_with_state(state.clone(), api_key_auth::require_api_key));
+
+    let app = Router::new()
+        .route("/", get(|| async { Html(DASHBOARD_HTML) }))
+        .route("/admin", get(|| async { Html(ADMIN_HTML) }))
+        .route("/stats", get(stats::get_stats))
         .route("/languages", get(languages::list_public))
+        .merge(submission_routes)
         .nest("/admin", admin_routes)
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());

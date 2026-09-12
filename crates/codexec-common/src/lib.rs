@@ -3,6 +3,7 @@
 //! one thing every other crate can depend on without pulling in a transport
 //! or a sandboxing stack.
 
+pub mod api_key;
 pub mod config;
 pub mod grading;
 pub mod models;

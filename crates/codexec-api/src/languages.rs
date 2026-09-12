@@ -1,9 +1,10 @@
 use crate::error::ApiError;
 use crate::state::AppState;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::Json;
 use codexec_common::models::Language;
-use codexec_common::registry::{self, PluginManifest};
+use codexec_common::registry::{self, PluginManifest, RegistryError};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -72,4 +73,18 @@ pub async fn deactivate(State(state): State<AppState>, Path(slug): Path<String>)
         .map_err(|e| ApiError::internal(e.to_string()))?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("no such language"))
+}
+
+pub async fn remove(State(state): State<AppState>, Path(slug): Path<String>) -> Result<StatusCode, ApiError> {
+    let deleted = registry::delete_language(&state.pool, Some(&state.nats), &slug).await.map_err(|e| match e {
+        RegistryError::InUse => ApiError::conflict(
+            "this plugin has existing submissions and can't be deleted - deactivate it instead",
+        ),
+        other => ApiError::internal(other.to_string()),
+    })?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("no such language"))
+    }
 }

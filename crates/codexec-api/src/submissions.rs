@@ -1,6 +1,7 @@
+use crate::api_key_auth::AuthenticatedApiKey;
 use crate::error::ApiError;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use chrono::{DateTime, Utc};
@@ -81,6 +82,7 @@ fn subject_for(language_slug: &str) -> String {
 
 pub async fn create_submission(
     State(state): State<AppState>,
+    Extension(AuthenticatedApiKey(api_key_id)): Extension<AuthenticatedApiKey>,
     Json(req): Json<SubmitRequest>,
 ) -> Result<(StatusCode, Json<SubmitResponse>), ApiError> {
     let language: Option<Language> =
@@ -135,8 +137,8 @@ pub async fn create_submission(
         r#"
         INSERT INTO submissions (
             id, language_id, language_slug, source_code, stdin, expected_output,
-            cpu_time_limit_ms, cpu_limit_cores, memory_limit_kb, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
+            cpu_time_limit_ms, cpu_limit_cores, memory_limit_kb, status, api_key_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued', $10)
         RETURNING submitted_at
         "#,
     )
@@ -149,6 +151,7 @@ pub async fn create_submission(
     .bind(cpu_time_limit_ms)
     .bind(cpu_limit_cores)
     .bind(memory_limit_kb)
+    .bind(api_key_id)
     .fetch_one(&mut *tx)
     .await?;
 

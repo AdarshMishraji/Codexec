@@ -1,5 +1,5 @@
 use crate::models::Language;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -9,9 +9,11 @@ pub enum RegistryError {
     Parse(#[from] toml::de::Error),
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
+    #[error("plugin has existing submissions and cannot be deleted - deactivate it instead")]
+    InUse,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct PluginManifest {
     pub language: LanguageSection,
     pub image: ImageSection,
@@ -19,19 +21,19 @@ pub struct PluginManifest {
     pub limits: LimitsSection,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LanguageSection {
     pub slug: String,
     pub display_name: String,
     pub version: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ImageSection {
     pub reference: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CommandsSection {
     #[serde(default)]
     pub compile_cmd: Vec<String>,
@@ -40,7 +42,7 @@ pub struct CommandsSection {
     pub compile_time_limit_ms: i32,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LimitsSection {
     pub default_cpu_time_limit_ms: i32,
     pub default_cpu_limit_cores: f64,
@@ -153,4 +155,37 @@ pub async fn set_active(
     }
 
     Ok(language)
+}
+
+/// A hard delete, distinct from `set_active(..., false)` — removes the
+/// plugin definition entirely rather than just hiding it from new
+/// submissions. `languages.id` has no `ON DELETE` behavior on
+/// `submissions.language_id` (defaults to `NO ACTION`), so this correctly
+/// fails with a foreign-key violation for any plugin that has ever been
+/// submitted to; that case is surfaced as `RegistryError::InUse` so the
+/// caller can return a clear 409 instead of a generic 500. Still notifies
+/// workers via the control subject on success, so a cached copy is evicted
+/// immediately rather than waiting on the periodic refresh.
+pub async fn delete_language(
+    pool: &PgPool,
+    nats: Option<&async_nats::Client>,
+    slug: &str,
+) -> Result<bool, RegistryError> {
+    let result = sqlx::query("DELETE FROM languages WHERE slug = $1").bind(slug).execute(pool).await;
+    let deleted = match result {
+        Ok(r) => r.rows_affected() > 0,
+        Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23503") => {
+            return Err(RegistryError::InUse);
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    if deleted {
+        if let Some(nats) = nats {
+            let payload = serde_json::json!({ "slug": slug, "action": "deleted" });
+            let _ = nats.publish("codexec.control.plugin_updated", payload.to_string().into()).await;
+        }
+    }
+
+    Ok(deleted)
 }

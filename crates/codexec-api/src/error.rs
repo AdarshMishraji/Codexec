@@ -30,8 +30,16 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "not_found", message)
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, "conflict", message)
+    }
+
     pub fn unauthorized() -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized", "missing or invalid admin token")
+    }
+
+    pub fn invalid_api_key() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "invalid_api_key", "missing, invalid, or revoked API key")
     }
 
     pub fn queue_unavailable() -> Self {

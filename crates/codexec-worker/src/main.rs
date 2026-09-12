@@ -365,7 +365,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    let registry = PluginRegistry::load(pool.clone()).await?;
+    let registry = PluginRegistry::load(pool.clone(), config.image_cache_root.clone().into()).await?;
     registry::spawn_control_subscriber(registry.clone(), nats.clone());
     registry::spawn_periodic_refresh(registry.clone(), Duration::from_secs(60));
 
