@@ -31,7 +31,7 @@ display_name = "C# 14 (.NET 10.0)"
 version = "10.0.401"
 
 [image]
-reference = "codexec/csharp:1.0.0"
+reference = "codexec/plugin-csharp:10.0"
 
 [commands]
 compile_cmd = ["sh", "-c", "CSCDLL=$(ls /usr/share/dotnet/sdk/*/Roslyn/bincore/csc.dll) && REFDIR=$(ls -d /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/*/ref/net10.0) && dotnet exec \"$CSCDLL\" -nologo -optimize+ -langversion:latest -target:exe $(for f in \"$REFDIR\"/*.dll; do printf -- '-r:%s ' \"$f\"; done) -out:main.dll main.cs && cp /opt/codexec/main.runtimeconfig.json main.runtimeconfig.json"]

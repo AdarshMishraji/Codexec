@@ -38,7 +38,7 @@ display_name = "Rust"
 version = "1.88.0"
 
 [image]
-reference = "codexec/rust:1.88.0"
+reference = "codexec/plugin-rust:1.88.0"
 
 [commands]
 compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in rustc --edition 2024 -C opt-level=2 -L dependency=/opt/rust-deps/target/release/deps --extern rand=$(ls /opt/rust-deps/target/release/deps/librand-*.rlib) --extern regex=$(ls /opt/rust-deps/target/release/deps/libregex-*.rlib) --extern itertools=$(ls /opt/rust-deps/target/release/deps/libitertools-*.rlib) -o main main.rs"]

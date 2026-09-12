@@ -26,7 +26,7 @@ display_name = "C++ (Clang 19, C++23)"
 version = "19.1.7"
 
 [image]
-reference = "codexec/cpp:1.0.0"
+reference = "codexec/plugin-cpp:19"
 
 [commands]
 compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in clang++-19 -std=c++23 -O2 -fsanitize=address -g -o main main.cpp"]

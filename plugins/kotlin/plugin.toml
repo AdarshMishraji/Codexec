@@ -23,7 +23,7 @@ display_name = "Kotlin"
 version = "2.1.10"
 
 [image]
-reference = "codexec/kotlin:2.1.10"
+reference = "codexec/plugin-kotlin:2.1.10"
 
 [commands]
 compile_cmd = ["kotlinc", "-J-Djava.io.tmpdir=/sandbox/in", "main.kt", "-include-runtime", "-d", "main.jar"]

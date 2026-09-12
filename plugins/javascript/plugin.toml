@@ -21,7 +21,7 @@ display_name = "JavaScript (Node.js 22.14.0)"
 version = "22.14.0"
 
 [image]
-reference = "codexec/javascript:1.0.0"
+reference = "codexec/plugin-javascript:22.14.0"
 
 [commands]
 compile_cmd = []

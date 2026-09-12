@@ -47,7 +47,7 @@ display_name = "Swift"
 version = "6.0"
 
 [image]
-reference = "codexec/swift:6.0"
+reference = "codexec/plugin-swift:6.0"
 
 [commands]
 compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in swiftc -O -module-cache-path /sandbox/in/.swift-mcache -I /opt/swift-libs/modules -I /opt/swift-libs/include/_NumericsShims -o main main.swift -L /opt/swift-libs/lib -Xlinker --whole-archive -Xlinker -lAlgorithms -Xlinker -lCollections -Xlinker -lBitCollections -Xlinker -lDequeModule -Xlinker -lHashTreeCollections -Xlinker -lHeapModule -Xlinker -lInternalCollectionsUtilities -Xlinker -lOrderedCollections -Xlinker -l_RopeModule -Xlinker -lNumerics -Xlinker -lRealModule -Xlinker -lComplexModule -Xlinker -l_NumericsShims -Xlinker --no-whole-archive"]

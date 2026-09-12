@@ -35,7 +35,7 @@ display_name = "Go"
 version = "1.23"
 
 [image]
-reference = "codexec/go:1.23"
+reference = "codexec/plugin-go:1.23"
 
 [commands]
 compile_cmd = ["sh", "-c", "mkdir -p /sandbox/in/.gowork && cp /opt/go-template/go.mod /opt/go-template/go.sum /sandbox/in/.gowork/ && cp /sandbox/in/main.go /sandbox/in/.gowork/main.go && cd /sandbox/in/.gowork && TMPDIR=/sandbox/in GOFLAGS=-mod=mod GOPROXY=off GOCACHE=/sandbox/in/.gocache GOPATH=/sandbox/in/.gopath go build -o /sandbox/in/main ."]

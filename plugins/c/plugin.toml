@@ -24,7 +24,7 @@ display_name = "C (GCC 14, gnu11)"
 version = "14.2.0"
 
 [image]
-reference = "codexec/c:1.0.0"
+reference = "codexec/plugin-c:14"
 
 [commands]
 compile_cmd = ["sh", "-c", "TMPDIR=/sandbox/in gcc-14 -std=gnu11 -O2 -fsanitize=address -g $(pkg-config --cflags glib-2.0) -o main main.c $(pkg-config --libs glib-2.0)"]

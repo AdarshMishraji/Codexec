@@ -4,7 +4,7 @@ display_name = "Dart 3.2"
 version = "3.2.6"
 
 [image]
-reference = "codexec/dart:1.0.0"
+reference = "codexec/plugin-dart:3.2.6"
 
 [commands]
 compile_cmd = []

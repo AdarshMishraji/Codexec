@@ -4,7 +4,7 @@ display_name = "Java (OpenJDK 25)"
 version = "25"
 
 [image]
-reference = "codexec/java:25"
+reference = "codexec/plugin-java:25"
 
 [commands]
 compile_cmd = ["javac", "-cp", "/opt/codexec/lib/pair.jar", "-d", ".", "Main.java"]
