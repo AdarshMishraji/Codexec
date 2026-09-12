@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>codexec — API Documentation</title>
+<style>
+  :root {
+    --bg: #0a0d14;
+    --card: #131826;
+    --card-2: #171d2c;
+    --card-border: #212838;
+    --text: #e8ecf4;
+    --text-dim: #8892a6;
+    --text-faint: #5b6478;
+    --accent: #6d8dff;
+    --accent-soft: rgba(109, 141, 255, 0.14);
+    --green: #3ddc97;
+    --amber: #f5b942;
+    --red: #ff6b6b;
+    --purple: #b88cff;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background-image: radial-gradient(ellipse 1200px 600px at 15% -10%, rgba(109,141,255,0.10), transparent);
+    background-attachment: fixed;
+  }
+  a { color: var(--accent); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .docs-shell { max-width: 1240px; margin: 0 auto; padding: 26px 26px 90px; display: grid; grid-template-columns: 236px 1fr; gap: 34px; align-items: start; }
+
+  /* ---- Sidebar ---- */
+  .sidebar { position: sticky; top: 26px; max-height: calc(100vh - 52px); overflow-y: auto; padding-right: 6px; }
+  .side-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 18px; }
+  .side-brand .brand-mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--purple)); display:flex; align-items:center; justify-content:center; font-weight:700; color:#0a0d14; font-size: 13px; flex-shrink:0; }
+  .side-brand span.name { color: var(--text); font-weight: 650; font-size: 14.5px; }
+  .side-links { display: flex; flex-direction: column; gap: 2px; margin-bottom: 20px; }
+  .side-links a { font-size: 12.5px; color: var(--text-dim); text-decoration: none; padding: 5px 0; }
+  .side-links a:hover { color: var(--text); }
+  .side-group { margin-bottom: 16px; }
+  .side-group-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); font-weight: 650; margin-bottom: 6px; padding-left: 10px; }
+  .side-link { display: block; font-size: 13px; color: var(--text-dim); text-decoration: none; padding: 6px 10px; border-radius: 7px; border-left: 2px solid transparent; margin-bottom: 1px; }
+  .side-link:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+  .side-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 550; }
+
+  /* ---- Main ---- */
+  main { min-width: 0; }
+  .docs-header { margin-bottom: 28px; }
+  .docs-header h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .docs-header p.lead { color: var(--text-dim); font-size: 14.5px; max-width: 640px; line-height: 1.6; margin: 0 0 16px; }
+  .base-url-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 16px; }
+  .base-url-row .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 650; }
+  .base-url-row code { font-size: 13.5px; color: var(--green); }
+  .quick-links { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .quick-links a { font-size: 12.5px; text-decoration: none; color: var(--text-dim); border: 1px solid var(--card-border); padding: 7px 13px; border-radius: 8px; }
+  .quick-links a:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+  section.doc-section { margin-bottom: 40px; scroll-margin-top: 20px; }
+  section.doc-section > h2 { font-size: 19px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  section.doc-section > p.section-desc { color: var(--text-dim); font-size: 13.5px; line-height: 1.6; margin: 0 0 18px; max-width: 720px; }
+
+  .panel { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 18px; }
+  .endpoint { scroll-margin-top: 20px; }
+  .endpoint-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .method-badge { font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 6px; letter-spacing: 0.03em; }
+  .method-badge.get { background: rgba(61,220,151,0.15); color: var(--green); }
+  .method-badge.post { background: rgba(109,141,255,0.15); color: var(--accent); }
+  .method-badge.delete { background: rgba(255,107,107,0.15); color: var(--red); }
+  .endpoint-path { font-size: 14.5px; color: var(--text); }
+  .endpoint-desc { color: var(--text-dim); font-size: 13.5px; line-height: 1.6; margin: 0 0 12px; }
+  .endpoint-meta { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.auth-key { background: rgba(184,140,255,0.14); color: var(--purple); }
+  .badge.auth-admin { background: rgba(245,185,66,0.14); color: var(--amber); }
+  .badge.auth-public { background: rgba(61,220,151,0.13); color: var(--green); }
+
+  h4.sub-head { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin: 18px 0 8px; font-weight: 650; }
+  h4.sub-head:first-of-type { margin-top: 0; }
+
+  table.fields { width: 100%; border-collapse: collapse; font-size: 12.8px; margin-bottom: 4px; }
+  table.fields th { text-align: left; font-size: 10.8px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); font-weight: 600; padding: 0 10px 8px; border-bottom: 1px solid var(--card-border); }
+  table.fields td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: top; color: var(--text-dim); }
+  table.fields tbody tr:last-child td { border-bottom: none; }
+  table.fields td.f-name { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.3px; white-space: nowrap; }
+  table.fields td.f-type { color: var(--purple); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
+  .req-yes { color: var(--amber); font-size: 11.5px; font-weight: 650; }
+  .req-no { color: var(--text-faint); font-size: 11.5px; }
+
+  .status-row { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
+  .status-pill { font-family: ui-monospace, monospace; font-size: 12.5px; font-weight: 700; padding: 3px 9px; border-radius: 6px; }
+  .status-pill.s2 { background: rgba(61,220,151,0.15); color: var(--green); }
+  .status-pill.s4 { background: rgba(245,185,66,0.15); color: var(--amber); }
+  .status-pill.s5 { background: rgba(255,107,107,0.15); color: var(--red); }
+  .status-desc { font-size: 13px; color: var(--text-dim); }
+
+  .code-block-wrap { position: relative; margin: 8px 0 18px; }
+  .code-block-wrap pre { margin: 0; background: var(--bg); border: 1px solid var(--card-border); border-radius: 9px;
+    padding: 13px 42px 13px 16px; font-size: 12.4px; line-height: 1.6; overflow-x: auto; color: var(--text); }
+  .code-block-wrap .lang-tag { position: absolute; top: 8px; left: 14px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); background: var(--bg); }
+  .code-block-wrap pre.tagged { padding-top: 24px; }
+  .copy-code-btn { position: absolute; top: 8px; right: 8px; background: var(--card-2); border: 1px solid var(--card-border); color: var(--text-dim); font-size: 11px; padding: 4px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+  .copy-code-btn:hover { color: var(--text); border-color: var(--accent); }
+  .cm-str { color: var(--green); }
+  .cm-key { color: var(--text-dim); }
+
+  .callout { background: var(--card-2); border: 1px solid var(--card-border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 15px; font-size: 12.8px; color: var(--text-dim); line-height: 1.6; margin: 4px 0 20px; }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout strong { color: var(--text); }
+  .callout code { color: var(--amber); }
+
+  footer.docs-footer { text-align: center; color: var(--text-faint); font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--card-border); }
+
+  @media (max-width: 900px) {
+    .docs-shell { grid-template-columns: 1fr; }
+    .sidebar { position: static; max-height: none; display: flex; flex-wrap: wrap; gap: 4px 10px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border); margin-bottom: 20px; }
+    .side-brand, .side-links, .side-group-label { display: none; }
+    .side-group { display: contents; }
+    .side-link { padding: 5px 9px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="docs-shell">
+
+<nav class="sidebar" id="sidebar">
+  <a class="side-brand" href="/"><span class="brand-mark">C</span><span class="name">codexec</span></a>
+  <div class="side-links">
+    <a href="/">Dashboard</a>
+    <a href="/admin">Admin Portal</a>
+  </div>
+
+  <div class="side-group">
+    <div class="side-group-label">Overview</div>
+    <a href="#authentication" class="side-link">Authentication</a>
+    <a href="#errors" class="side-link">Errors</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Submissions</div>
+    <a href="#submit-code" class="side-link">Submit code</a>
+    <a href="#get-submission" class="side-link">Get a submission</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Languages</div>
+    <a href="#list-languages" class="side-link">List languages</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Platform stats</div>
+    <a href="#get-stats" class="side-link">Get stats</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Admin · Plugins</div>
+    <a href="#admin-list-languages" class="side-link">List plugins</a>
+    <a href="#admin-register-language" class="side-link">Register / update</a>
+    <a href="#admin-activate-language" class="side-link">Activate</a>
+    <a href="#admin-deactivate-language" class="side-link">Deactivate</a>
+    <a href="#admin-delete-language" class="side-link">Delete</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Admin · Templates</div>
+    <a href="#admin-list-templates" class="side-link">List templates</a>
+    <a href="#admin-get-template" class="side-link">Get a template</a>
+  </div>
+  <div class="side-group">
+    <div class="side-group-label">Admin · API Keys</div>
+    <a href="#admin-list-keys" class="side-link">List keys</a>
+    <a href="#admin-create-key" class="side-link">Create a key</a>
+    <a href="#admin-delete-key" class="side-link">Delete a key</a>
+  </div>
+</nav>
+
+<main>
+  <div class="docs-header">
+    <h1>codexec API</h1>
+    <p class="lead">A REST API for submitting source code to an isolated, resource-limited sandbox (CPU time, CPU rate, and memory are all independently enforced) and retrieving the result. Every request and response body is JSON.</p>
+    <div class="base-url-row">
+      <span class="label">Base URL</span>
+      <code id="base-url">__ORIGIN__</code>
+    </div>
+    <div class="quick-links">
+      <a href="/">← Live dashboard</a>
+      <a href="/admin">Admin Portal (manage plugins &amp; keys)</a>
+      <a href="/admin">Playground (try requests live) →</a>
+    </div>
+  </div>
+
+  <section class="doc-section" id="authentication">
+    <h2>Authentication</h2>
+    <p class="section-desc">Every non-public endpoint uses the same scheme — an <code>Authorization: Bearer &lt;token&gt;</code> header — but there are two independent tokens, and they are not interchangeable.</p>
+
+    <table class="fields" style="margin-bottom:18px;">
+      <thead><tr><th>Scheme</th><th>Header</th><th>Protects</th><th>How to obtain it</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="f-name">API key</td>
+          <td class="f-type">Authorization: Bearer cxk_…</td>
+          <td>All <code>/submissions</code> routes</td>
+          <td>Admin Portal → API Keys tab → Create Key (or <code>POST /admin/api-keys</code> below). Shown once at creation — only its hash is stored server-side, so a lost key can't be recovered, only revoked and replaced.</td>
+        </tr>
+        <tr>
+          <td class="f-name">Admin token</td>
+          <td class="f-type">Authorization: Bearer &lt;token&gt;</td>
+          <td>All <code>/admin/*</code> routes</td>
+          <td>A single static value set by whoever deploys codexec, via the <code>ADMIN_API_TOKEN</code> environment variable. Not created or rotated through the API.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <strong>Public, no auth required:</strong> <code>GET /</code>, <code>GET /admin</code>, <code>GET /docs</code>, <code>GET /stats</code>, and <code>GET /languages</code>. Everything else requires one of the two tokens above.
+    </div>
+    <div class="callout warn">
+      <strong>Body requests need a real Content-Type.</strong> Every <code>POST</code> below expects <code>Content-Type: application/json</code>. Omit it and you get a framework-level <code>415</code> with a plain-text body (<code>Expected request with `Content-Type: application/json`</code>) — not the JSON error envelope described below. Malformed JSON similarly returns a plain-text <code>400</code> (e.g. <code>Failed to parse the request body as JSON: key must be a string at line 1 column 2</code>). Both are framework-level responses, verified against the live server, not the <code>{"error", "message"}</code> shape used everywhere else in this document.
+    </div>
+  </section>
+
+  <section class="doc-section" id="errors">
+    <h2>Errors</h2>
+    <p class="section-desc">Outside the Content-Type/malformed-JSON edge case above, every error response (any status ≥ 400) uses the same envelope:</p>
+    <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "error": "unknown_language",
+  "message": "No active plugin registered for language 'cobol'"
+}</code></pre></div>
+    <p class="section-desc" style="margin-top:-6px;"><code>error</code> is a stable machine-readable code — safe to switch on in client code. <code>message</code> is a human-readable detail that may change wording over time.</p>
+
+    <table class="fields">
+      <thead><tr><th>error</th><th>Status</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td class="f-name">unknown_language</td><td class="f-type">422</td><td>The <code>language</code> slug doesn't exist, or exists but is deactivated. Both cases look identical to the caller by design.</td></tr>
+        <tr><td class="f-name">invalid_cpu_time_limit</td><td class="f-type">422</td><td><code>cpu_time_limit_ms</code> is ≤ 0 or exceeds the effective ceiling for this language.</td></tr>
+        <tr><td class="f-name">invalid_cpu_limit_cores</td><td class="f-type">422</td><td><code>cpu_limit_cores</code> is ≤ 0 or exceeds the effective ceiling for this language.</td></tr>
+        <tr><td class="f-name">invalid_memory_limit</td><td class="f-type">422</td><td><code>memory_limit_kb</code> is ≤ 0 or exceeds the effective ceiling for this language.</td></tr>
+        <tr><td class="f-name">source_too_large</td><td class="f-type">422</td><td><code>source_code</code> is empty, or it (or <code>expected_output</code>) exceeds <code>MAX_SOURCE_CODE_BYTES</code> (default 65536 bytes).</td></tr>
+        <tr><td class="f-name">invalid_label</td><td class="f-type">422</td><td>An API key's <code>label</code> was empty or all whitespace.</td></tr>
+        <tr><td class="f-name">invalid_api_key</td><td class="f-type">401</td><td>Missing, unrecognized, or revoked API key on a <code>/submissions</code> route.</td></tr>
+        <tr><td class="f-name">unauthorized</td><td class="f-type">401</td><td>Missing or incorrect admin token on an <code>/admin/*</code> route.</td></tr>
+        <tr><td class="f-name">not_found</td><td class="f-type">404</td><td>No resource exists at the given id/slug.</td></tr>
+        <tr><td class="f-name">conflict</td><td class="f-type">409</td><td>The request is well-formed but can't be applied right now — currently only returned when deleting a plugin that has submission history.</td></tr>
+        <tr><td class="f-name">queue_unavailable</td><td class="f-type">503</td><td>The submission couldn't be published to the execution queue; nothing was persisted — safe to retry.</td></tr>
+        <tr><td class="f-name">internal_error</td><td class="f-type">500</td><td>An unexpected server-side failure (e.g. a database error).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="doc-section" id="submissions">
+    <h2>Submissions</h2>
+    <p class="section-desc">The core of the API: submit source code for execution, then poll for the result. Submitting is asynchronous — there is no synchronous "run and wait" mode — so a typical integration submits once and polls <a href="#get-submission">GET /submissions/{id}</a> every second or so until the status is terminal.</p>
+
+    <div class="panel endpoint" id="submit-code">
+      <div class="endpoint-head"><span class="method-badge post">POST</span><code class="endpoint-path">/submissions</code></div>
+      <p class="endpoint-desc">Queues a new submission for execution and returns immediately.</p>
+      <div class="endpoint-meta"><span class="badge auth-key">Requires API key</span></div>
+
+      <h4 class="sub-head">Request body</h4>
+      <table class="fields">
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="f-name">language</td><td class="f-type">string</td><td><span class="req-yes">required</span></td><td>An active language's <code>slug</code> (see <a href="#list-languages">GET /languages</a>).</td></tr>
+          <tr><td class="f-name">source_code</td><td class="f-type">string</td><td><span class="req-yes">required</span></td><td>Non-empty, up to <code>MAX_SOURCE_CODE_BYTES</code> (default 65536 bytes).</td></tr>
+          <tr><td class="f-name">stdin</td><td class="f-type">string</td><td><span class="req-no">optional</span></td><td>Defaults to <code>""</code>. Piped to the program's standard input.</td></tr>
+          <tr><td class="f-name">expected_output</td><td class="f-type">string | null</td><td><span class="req-no">optional</span></td><td>When set, enables grading: <code>verdict</code> becomes <code>"accepted"</code> or <code>"wrong_answer"</code> once the run completes (exact match after trimming trailing whitespace per line and trailing blank lines). Left <code>null</code>, the submission is execution-only and <code>verdict</code> stays <code>null</code> forever.</td></tr>
+          <tr><td class="f-name">cpu_time_limit_ms</td><td class="f-type">integer | null</td><td><span class="req-no">optional</span></td><td>Defaults to the language's <code>default_cpu_time_limit_ms</code>. Must be in <code>(0, effective_max]</code>, where the effective max is <code>min(language.max_cpu_time_limit_ms, platform ceiling)</code>.</td></tr>
+          <tr><td class="f-name">cpu_limit_cores</td><td class="f-type">number | null</td><td><span class="req-no">optional</span></td><td>Defaults to the language's <code>default_cpu_limit_cores</code>. Same ceiling rule as above, against <code>max_cpu_limit_cores</code>.</td></tr>
+          <tr><td class="f-name">memory_limit_kb</td><td class="f-type">integer | null</td><td><span class="req-no">optional</span></td><td>Defaults to the language's <code>default_memory_limit_kb</code>. Same ceiling rule as above, against <code>max_memory_limit_kb</code>.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <strong>Two independent CPU controls.</strong> <code>cpu_limit_cores</code> is a hard rate cap (kernel-enforced via the cgroup's CFS quota — e.g. <code>1.5</code> cores throttles concurrent CPU draw). <code>cpu_time_limit_ms</code> is a total CPU-time budget the worker enforces by polling cumulative usage and killing the process once it's exceeded. A program can hit either independently of the other.
+      </div>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X POST __ORIGIN__/submissions \
+  -H "Authorization: Bearer cxk_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "language": "python3",
+    "source_code": "print(\"hello, world\")",
+    "stdin": "",
+    "expected_output": null,
+    "cpu_time_limit_ms": 2000,
+    "cpu_limit_cores": 1.0,
+    "memory_limit_kb": 262144
+  }'</code></pre></div>
+
+      <div class="status-row"><span class="status-pill s2">202</span><span class="status-desc">Accepted — queued</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "id": "3583fc02-4500-45e7-9eaf-1455fe7fc9fb",
+  "status": "queued",
+  "submitted_at": "2026-09-12T07:28:10.806118Z"
+}</code></pre></div>
+
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>invalid_api_key</code> — missing, unknown, or revoked key</span></div>
+      <div class="status-row"><span class="status-pill s4">422</span><span class="status-desc"><code>unknown_language</code> / <code>invalid_cpu_time_limit</code> / <code>invalid_cpu_limit_cores</code> / <code>invalid_memory_limit</code> / <code>source_too_large</code></span></div>
+      <div class="status-row"><span class="status-pill s5">503</span><span class="status-desc"><code>queue_unavailable</code> — nothing was persisted; safe to retry</span></div>
+    </div>
+
+    <div class="panel endpoint" id="get-submission">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/submissions/{id}</code></div>
+      <p class="endpoint-desc">Fetches the current state of a submission. Poll this until <code>status</code> is terminal.</p>
+      <div class="endpoint-meta"><span class="badge auth-key">Requires API key</span></div>
+
+      <h4 class="sub-head">Path parameters</h4>
+      <table class="fields">
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody><tr><td class="f-name">id</td><td class="f-type">UUID</td><td>The id returned by <a href="#submit-code">POST /submissions</a>.</td></tr></tbody>
+      </table>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/submissions/3583fc02-4500-45e7-9eaf-1455fe7fc9fb \
+  -H "Authorization: Bearer cxk_your_api_key"</code></pre></div>
+
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "id": "c92a8bb8-f06f-4a36-9bd4-8c444e4d2725",
+  "language": "python3",
+  "status": "completed",
+  "verdict": null,
+  "stdout": "2\n",
+  "stderr": "",
+  "compile_output": null,
+  "exit_code": 0,
+  "cpu_time_limit_ms": 2000,
+  "cpu_limit_cores": 1.0,
+  "memory_limit_kb": 262144,
+  "cpu_time_used_ms": 22.0,
+  "memory_used_kb": 4304,
+  "limit_exceeded": null,
+  "error_message": null,
+  "submitted_at": "2026-09-12T07:28:10.806118Z",
+  "started_at": "2026-09-12T07:28:10.815465Z",
+  "finished_at": "2026-09-12T07:28:10.881975Z"
+}</code></pre></div>
+
+      <h4 class="sub-head">Response fields</h4>
+      <table class="fields">
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="f-name">status</td><td class="f-type">enum</td><td>One of <code>queued</code>, <code>processing</code>, <code>completed</code>, <code>compile_error</code>, <code>runtime_error</code>, <code>time_limit_exceeded</code>, <code>memory_limit_exceeded</code>, <code>internal_error</code>. Anything other than <code>queued</code>/<code>processing</code> is terminal.</td></tr>
+          <tr><td class="f-name">verdict</td><td class="f-type">enum | null</td><td><code>accepted</code> or <code>wrong_answer</code> — set only if the submission carried <code>expected_output</code> <em>and</em> reached <code>completed</code>. Stays <code>null</code> for every other status, even if <code>expected_output</code> was provided.</td></tr>
+          <tr><td class="f-name">limit_exceeded</td><td class="f-type">enum | null</td><td><code>cpu_time</code> when <code>status = time_limit_exceeded</code>, <code>memory</code> when <code>status = memory_limit_exceeded</code>, otherwise <code>null</code>. Derived from <code>status</code>, not an independent signal.</td></tr>
+          <tr><td class="f-name">stdout</td><td class="f-type">string | null</td><td>Captured standard output. May be truncated at a platform-defined byte ceiling.</td></tr>
+          <tr><td class="f-name">stderr</td><td class="f-type">string | null</td><td>Captured standard error.</td></tr>
+          <tr><td class="f-name">compile_output</td><td class="f-type">string | null</td><td>Captured compiler output, for languages with a compile step. <code>null</code> for interpreted languages or before compilation runs.</td></tr>
+          <tr><td class="f-name">exit_code</td><td class="f-type">integer | null</td><td>The program's process exit code, once it has run.</td></tr>
+          <tr><td class="f-name">cpu_time_used_ms</td><td class="f-type">number | null</td><td>Actual cumulative CPU time consumed, read from the cgroup — not wall-clock time.</td></tr>
+          <tr><td class="f-name">memory_used_kb</td><td class="f-type">integer | null</td><td>Peak resident memory, read from the cgroup.</td></tr>
+          <tr><td class="f-name">error_message</td><td class="f-type">string | null</td><td>Set only when <code>status = internal_error</code> — details of the platform-side failure.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>invalid_api_key</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no such submission</span></div>
+    </div>
+  </section>
+
+  <section class="doc-section" id="languages">
+    <h2>Languages</h2>
+    <p class="section-desc">Public, read-only. Lists every currently-active plugin along with the limits your submissions to it are validated against.</p>
+
+    <div class="panel endpoint" id="list-languages">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/languages</code></div>
+      <p class="endpoint-desc">Active languages only — inactive/unregistered ones never appear here, and behave identically to an unknown slug from <a href="#submit-code">POST /submissions</a>' point of view.</p>
+      <div class="endpoint-meta"><span class="badge auth-public">Public</span></div>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/languages</code></pre></div>
+
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — array, one entry per active language</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>[
+  {
+    "slug": "python3",
+    "display_name": "Python 3.11",
+    "version": "3.11.4",
+    "default_cpu_time_limit_ms": 2000,
+    "default_cpu_limit_cores": 1.0,
+    "default_memory_limit_kb": 262144,
+    "max_cpu_time_limit_ms": 10000,
+    "max_cpu_limit_cores": 2.0,
+    "max_memory_limit_kb": 1048576
+  }
+]</code></pre></div>
+      <p class="section-desc">Note what's <em>not</em> here: <code>image_ref</code>, <code>compile_cmd</code>, and <code>run_cmd</code> are internal implementation details, only exposed via the authenticated <a href="#admin-list-languages">admin listing</a>.</p>
+    </div>
+  </section>
+
+  <section class="doc-section" id="stats">
+    <h2>Platform stats</h2>
+    <p class="section-desc">Public, read-only aggregate statistics — the same endpoint the <a href="/">live dashboard</a> polls every 15 seconds. Every field is either an aggregate number or submission <em>metadata</em>; source code and stdout/stderr content are never included here (they require an API key via <a href="#get-submission">GET /submissions/{id}</a>).</p>
+
+    <div class="panel endpoint" id="get-stats">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/stats</code></div>
+      <div class="endpoint-meta"><span class="badge auth-public">Public</span></div>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/stats</code></pre></div>
+
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "total_submissions": 1042,
+  "completed_submissions": 918,
+  "success_rate_pct": 88.1,
+  "submissions_last_24h": 37,
+  "submissions_last_7d": 210,
+  "avg_cpu_time_ms": 143.6,
+  "avg_memory_kb": 18342.2,
+  "p50_cpu_time_ms": 41.0,
+  "p95_cpu_time_ms": 612.0,
+  "avg_wall_time_ms": 96.4,
+  "avg_queue_wait_ms": 8.2,
+  "languages_total": 12,
+  "languages_active": 11,
+  "api_keys_total": 4,
+  "api_keys_active": 3,
+  "status_breakdown": [ { "status": "completed", "count": 918 }, { "status": "runtime_error", "count": 64 } ],
+  "verdict_breakdown": [ { "verdict": "accepted", "count": 310 }, { "verdict": "wrong_answer", "count": 52 } ],
+  "language_breakdown": [ { "slug": "python3", "display_name": "Python 3.11", "count": 402 } ],
+  "daily_trend": [ { "day": "2026-08-30", "count": 51 }, { "day": "2026-08-31", "count": 64 } ],
+  "recent_submissions": [
+    {
+      "id": "c92a8bb8-f06f-4a36-9bd4-8c444e4d2725",
+      "language_slug": "python3",
+      "status": "completed",
+      "verdict": null,
+      "cpu_time_used_ms": 22.0,
+      "memory_used_kb": 4304,
+      "submitted_at": "2026-09-12T07:28:10.806118Z",
+      "finished_at": "2026-09-12T07:28:10.881975Z"
+    }
+  ]
+}</code></pre></div>
+      <p class="section-desc"><code>daily_trend</code> covers the last 14 days, zero-filled for days with no submissions. <code>recent_submissions</code> is capped at the 20 most recent, metadata only.</p>
+    </div>
+  </section>
+
+  <section class="doc-section" id="admin">
+    <h2>Admin API</h2>
+    <p class="section-desc">Everything under <code>/admin</code> requires the admin bearer token (see <a href="#authentication">Authentication</a>) and is meant for operators managing the platform — registering plugins and issuing API keys — rather than end-user integrations. The <a href="/admin">Admin Portal</a> is a full UI over this same API, including a Playground for live testing.</p>
+
+    <h4 class="sub-head" id="admin-list-languages" style="font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;">Plugins</h4>
+
+    <div class="panel endpoint">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/admin/languages</code></div>
+      <p class="endpoint-desc">Every registered language, active and inactive, with full detail (image reference, argv commands, timestamps).</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/admin/languages \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — array of full language rows</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>[
+  {
+    "id": "8f1a2e3d-...",
+    "slug": "python3",
+    "display_name": "Python 3.11",
+    "version": "3.11.4",
+    "image_ref": "docker.io/library/python:3.11-slim",
+    "compile_cmd": null,
+    "run_cmd": ["python3", "main.py"],
+    "source_filename": "main.py",
+    "compile_time_limit_ms": 10000,
+    "default_cpu_time_limit_ms": 2000,
+    "default_cpu_limit_cores": 1.0,
+    "default_memory_limit_kb": 262144,
+    "max_cpu_time_limit_ms": 10000,
+    "max_cpu_limit_cores": 2.0,
+    "max_memory_limit_kb": 1048576,
+    "is_active": true,
+    "created_at": "2026-09-02T19:22:00Z",
+    "updated_at": "2026-09-02T19:22:00Z"
+  }
+]</code></pre></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-register-language">
+      <div class="endpoint-head"><span class="method-badge post">POST</span><code class="endpoint-path">/admin/languages</code></div>
+      <p class="endpoint-desc">Registers a new plugin, or upserts an existing one by <code>slug</code> — re-registering an existing slug overwrites every field and forces it back to active. Only writes the database row; a worker pulls the image itself in the background the first time it sees a slug it doesn't have cached.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+
+      <h4 class="sub-head">Request body</h4>
+      <table class="fields">
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="f-name">language.slug</td><td class="f-type">string</td><td>Unique identifier, e.g. <code>"python3"</code>. Used in <a href="#submit-code">POST /submissions</a>' <code>language</code> field.</td></tr>
+          <tr><td class="f-name">language.display_name</td><td class="f-type">string</td><td>Human-readable name shown in the dashboard/admin UI.</td></tr>
+          <tr><td class="f-name">language.version</td><td class="f-type">string</td><td>Free-form version string.</td></tr>
+          <tr><td class="f-name">image.reference</td><td class="f-type">string</td><td>A pullable OCI image reference (e.g. a public Docker Hub tag).</td></tr>
+          <tr><td class="f-name">commands.compile_cmd</td><td class="f-type">string[]</td><td>Argv array, run before <code>run_cmd</code>. Empty array for interpreted languages with no compile step.</td></tr>
+          <tr><td class="f-name">commands.run_cmd</td><td class="f-type">string[]</td><td>Argv array that executes the submission.</td></tr>
+          <tr><td class="f-name">commands.source_filename</td><td class="f-type">string</td><td>Filename the submitted <code>source_code</code> is written to before <code>compile_cmd</code>/<code>run_cmd</code> run, e.g. <code>"main.py"</code>.</td></tr>
+          <tr><td class="f-name">commands.compile_time_limit_ms</td><td class="f-type">integer</td><td>Wall-clock ceiling for the compile step.</td></tr>
+          <tr><td class="f-name">limits.default_cpu_time_limit_ms</td><td class="f-type">integer</td><td>Used when a submission omits <code>cpu_time_limit_ms</code>.</td></tr>
+          <tr><td class="f-name">limits.default_cpu_limit_cores</td><td class="f-type">number</td><td>Used when a submission omits <code>cpu_limit_cores</code>.</td></tr>
+          <tr><td class="f-name">limits.default_memory_limit_kb</td><td class="f-type">integer</td><td>Used when a submission omits <code>memory_limit_kb</code>.</td></tr>
+          <tr><td class="f-name">limits.max_cpu_time_limit_ms</td><td class="f-type">integer</td><td>Per-language ceiling — combined with the platform-wide ceiling via <code>min()</code>.</td></tr>
+          <tr><td class="f-name">limits.max_cpu_limit_cores</td><td class="f-type">number</td><td>Per-language ceiling — combined with the platform-wide ceiling via <code>min()</code>.</td></tr>
+          <tr><td class="f-name">limits.max_memory_limit_kb</td><td class="f-type">integer</td><td>Per-language ceiling — combined with the platform-wide ceiling via <code>min()</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X POST __ORIGIN__/admin/languages \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "language": { "slug": "python3", "display_name": "Python 3.11", "version": "3.11.4" },
+    "image": { "reference": "docker.io/library/python:3.11-slim" },
+    "commands": {
+      "compile_cmd": [],
+      "run_cmd": ["python3", "main.py"],
+      "source_filename": "main.py",
+      "compile_time_limit_ms": 10000
+    },
+    "limits": {
+      "default_cpu_time_limit_ms": 2000, "default_cpu_limit_cores": 1.0, "default_memory_limit_kb": 262144,
+      "max_cpu_time_limit_ms": 10000, "max_cpu_limit_cores": 2.0, "max_memory_limit_kb": 1048576
+    }
+  }'</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — the full language row (same shape as <a href="#admin-list-languages">GET /admin/languages</a>'s array entries)</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="callout">Pre-built manifests for common languages (with real, tested <code>compile_cmd</code>/<code>run_cmd</code> values) are available via <a href="#admin-list-templates">the plugin templates endpoints</a> and the Admin Portal's "Add Plugin" form.</div>
+    </div>
+
+    <div class="panel endpoint" id="admin-activate-language">
+      <div class="endpoint-head"><span class="method-badge post">POST</span><code class="endpoint-path">/admin/languages/{slug}/activate</code></div>
+      <p class="endpoint-desc">Marks a plugin active, making it selectable in new submissions again.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X POST __ORIGIN__/admin/languages/python3/activate \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — the updated language row</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no such slug</span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-deactivate-language">
+      <div class="endpoint-head"><span class="method-badge post">POST</span><code class="endpoint-path">/admin/languages/{slug}/deactivate</code></div>
+      <p class="endpoint-desc">Marks a plugin inactive. New submissions to it are rejected with <code>unknown_language</code>; already-processing submissions finish normally, and history is untouched.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X POST __ORIGIN__/admin/languages/python3/deactivate \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — the updated language row</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no such slug</span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-delete-language">
+      <div class="endpoint-head"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/admin/languages/{slug}</code></div>
+      <p class="endpoint-desc">Permanently removes a plugin definition — distinct from deactivating. Only succeeds if no submission has ever referenced it.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X DELETE __ORIGIN__/admin/languages/python3 \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">204</span><span class="status-desc">No Content — deleted</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no such slug</span></div>
+      <div class="status-row"><span class="status-pill s4">409</span><span class="status-desc"><code>conflict</code> — has submission history; deactivate instead</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "error": "conflict",
+  "message": "this plugin has existing submissions and can't be deleted - deactivate it instead"
+}</code></pre></div>
+    </div>
+
+    <h4 class="sub-head" id="admin-list-templates" style="font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;">Plugin templates</h4>
+    <p class="section-desc">Read-only manifests for the plugins this deployment ships Dockerfiles for, whose images are published on Docker Hub — the same data source behind the Admin Portal's "start from an existing plugin" picker. Embedded at build time, not stored in the database.</p>
+
+    <div class="panel endpoint">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/admin/plugin-templates</code></div>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/admin/plugin-templates \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>[
+  { "slug": "c", "display_name": "C (GCC 14, gnu11)", "version": "14.2.0" },
+  { "slug": "python3", "display_name": "Python 3.11", "version": "3.11.4" }
+]</code></pre></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-get-template">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/admin/plugin-templates/{slug}</code></div>
+      <p class="endpoint-desc">Returns the full manifest — same shape <a href="#admin-register-language">POST /admin/languages</a> expects as its body, so it can be submitted as-is or edited first.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/admin/plugin-templates/python3 \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK — a <code>PluginManifest</code> (same shape as the register request body above)</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no built-in template for that slug</span></div>
+    </div>
+
+    <h4 class="sub-head" id="admin-list-keys" style="font-size:13px;color:var(--text);text-transform:none;letter-spacing:0;">API keys</h4>
+
+    <div class="panel endpoint">
+      <div class="endpoint-head"><span class="method-badge get">GET</span><code class="endpoint-path">/admin/api-keys</code></div>
+      <p class="endpoint-desc">Lists every API key. Never includes the raw key or its hash — only <code>key_prefix</code>, for identification.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl __ORIGIN__/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">200</span><span class="status-desc">OK</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>[
+  {
+    "id": "6da3494f-47f0-455a-81a1-bc7274628839",
+    "label": "acme-corp-integration",
+    "key_prefix": "cxk_e0d7bd3e",
+    "is_active": true,
+    "created_at": "2026-09-12T07:28:02.084943Z",
+    "last_used_at": "2026-09-12T07:28:10.806118Z",
+    "revoked_at": null
+  }
+]</code></pre></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-create-key">
+      <div class="endpoint-head"><span class="method-badge post">POST</span><code class="endpoint-path">/admin/api-keys</code></div>
+      <p class="endpoint-desc">Creates a new API key. The raw key is returned <strong>exactly once</strong>, in this response only — only its SHA-256 hash is stored, so it cannot be displayed again later.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+
+      <h4 class="sub-head">Request body</h4>
+      <table class="fields">
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody><tr><td class="f-name">label</td><td class="f-type">string</td><td>Non-empty, human-readable name to identify this key later (e.g. <code>"acme-corp-integration"</code>).</td></tr></tbody>
+      </table>
+
+      <h4 class="sub-head">Example request</h4>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X POST __ORIGIN__/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "label": "acme-corp-integration" }'</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">201</span><span class="status-desc">Created</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>{
+  "id": "6da3494f-47f0-455a-81a1-bc7274628839",
+  "label": "acme-corp-integration",
+  "key_prefix": "cxk_e0d7bd3e",
+  "is_active": true,
+  "created_at": "2026-09-12T07:28:02.084943Z",
+  "last_used_at": null,
+  "revoked_at": null,
+  "api_key": "cxk_e0d7bd3eb08d4eb7b7e16f9ff15f0859"
+}</code></pre></div>
+      <p class="section-desc" style="margin-top:-8px;">Store <code>api_key</code> (the full string) somewhere safe now — use it as the <code>Authorization: Bearer</code> value against <a href="#submit-code">/submissions</a>. Every other field here also appears in <a href="#admin-list-keys">GET /admin/api-keys</a>, but without <code>api_key</code>.</p>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">422</span><span class="status-desc"><code>invalid_label</code> — empty or whitespace-only label</span></div>
+    </div>
+
+    <div class="panel endpoint" id="admin-delete-key">
+      <div class="endpoint-head"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/admin/api-keys/{id}</code></div>
+      <p class="endpoint-desc">Permanently revokes a key. Any client using it loses access on its very next request — there is no grace period. Submissions already made with it keep their <code>api_key_id</code> attribution for history purposes.</p>
+      <div class="endpoint-meta"><span class="badge auth-admin">Requires admin token</span></div>
+      <div class="code-block-wrap"><button class="copy-code-btn" type="button">Copy</button><pre><code>curl -X DELETE __ORIGIN__/admin/api-keys/6da3494f-47f0-455a-81a1-bc7274628839 \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN"</code></pre></div>
+      <div class="status-row"><span class="status-pill s2">204</span><span class="status-desc">No Content — revoked</span></div>
+      <div class="status-row"><span class="status-pill s4">401</span><span class="status-desc"><code>unauthorized</code></span></div>
+      <div class="status-row"><span class="status-pill s4">404</span><span class="status-desc"><code>not_found</code> — no such key id</span></div>
+    </div>
+  </section>
+
+  <footer class="docs-footer">codexec API documentation — generated from the live route table. No pagination or rate limiting is currently enforced on any endpoint.</footer>
+</main>
+</div>
+
+<script>
+const origin = location.origin;
+document.querySelectorAll(".code-block-wrap code, #base-url").forEach(el => {
+  el.textContent = el.textContent.replaceAll("__ORIGIN__", origin);
+});
+
+document.querySelectorAll(".copy-code-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const code = btn.closest(".code-block-wrap").querySelector("code");
+    navigator.clipboard?.writeText(code.textContent).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => btn.textContent = orig, 1400);
+    });
+  });
+});
+
+const sideLinks = Array.from(document.querySelectorAll(".side-link"));
+const linkById = new Map(sideLinks.map(a => [a.getAttribute("href").slice(1), a]));
+const targets = sideLinks.map(a => document.getElementById(a.getAttribute("href").slice(1))).filter(Boolean);
+if ("IntersectionObserver" in window && targets.length) {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const link = linkById.get(entry.target.id);
+      if (!link || !entry.isIntersecting) return;
+      sideLinks.forEach(l => l.classList.remove("active"));
+      link.classList.add("active");
+    });
+  }, { rootMargin: "-10% 0px -75% 0px", threshold: 0 });
+  targets.forEach(t => observer.observe(t));
+}
+</script>
+</body>
+</html>

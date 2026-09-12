@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - codexec-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codexec -d codexec"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   nats:
     image: nats:2.10
@@ -17,19 +22,64 @@ services:
       - "4222:4222"
       - "8222:8222"
 
+  # The HTTP server: submissions API, /admin/* routes, dashboard and admin
+  # portal. Needs no privileges at all (see docker/api.Dockerfile) - it
+  # only talks to Postgres and NATS. It also runs the migrations on
+  # startup by default, so bring it up before the worker on a fresh
+  # volume.
+  api:
+    image: ${CODEXEC_IMAGE_NAMESPACE:-codexec}/codexec-api:${CODEXEC_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    # Postgres/NATS can still refuse a connection in the window after the
+    # healthcheck passes (or be restarted under a running stack); the API
+    # exits rather than retrying its initial connect, so let Docker
+    # restart it instead of leaving the stack half-up.
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://codexec:codexec@postgres:5432/codexec
+      NATS_URL: nats://nats:4222
+      RUST_LOG: info
+      API_BIND_ADDR: 0.0.0.0:8080
+      # Guards every /admin/* route. Required - no default in the binary.
+      # Picked up from the repo-root .env by compose, or from your shell.
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-change-me-dev-token}
+      RUN_MIGRATIONS_ON_STARTUP: "true"
+    healthcheck:
+      # /languages is the cheapest public route that actually round-trips
+      # to Postgres, so a pass means "serving and DB-connected", not just
+      # "port open".
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/languages"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
   # Dev/test only: bundles runc + skopeo + umoci alongside codexec-worker
   # so the real sandboxed execution engine can be exercised without a
   # bare-metal Linux host. Needs `privileged` for runc to manage cgroups
   # and mount namespaces. See docker/worker.Dockerfile. No daemon runs
   # here - runc is a plain subprocess per submission.
   worker:
+    image: ${CODEXEC_IMAGE_NAMESPACE:-codexec}/codexec-worker:${CODEXEC_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
     privileged: true
     depends_on:
-      - postgres
-      - nats
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://codexec:codexec@postgres:5432/codexec
       NATS_URL: nats://nats:4222

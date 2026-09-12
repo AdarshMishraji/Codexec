@@ -1,0 +1,13 @@
+# Both image builds compile inside the builder stage, so the host's
+# target/ (multi-GB) is pure context-transfer overhead - and worse, a
+# stale host-arch artifact tree sitting where the in-image cargo build
+# writes.
+target/
+
+.git/
+
+# Never ship secrets into a build context: ADMIN_API_TOKEN lives here.
+# The API service reads it from docker-compose.yml's environment instead.
+.env
+
+.claude/

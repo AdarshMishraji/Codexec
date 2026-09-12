@@ -11,6 +11,91 @@ trick.
 Tested against Ubuntu/Debian; substitute your distro's package manager
 where noted.
 
+If you'd rather not build from source at all, both binaries are also
+published as container images — see [§0](#0-container-images-docker-hub)
+for the whole-stack shortcut and how to publish your own.
+
+## 0. Container images (Docker Hub)
+
+Two images are built from this repo, one per binary:
+
+| Image | Dockerfile | What it is |
+| --- | --- | --- |
+| `codexec/codexec-api` | `docker/api.Dockerfile` | The HTTP server: submissions API, `/admin/*`, dashboard, admin portal. Unprivileged, non-root, no runc — a plain stateless web process. |
+| `codexec/codexec-worker` | `docker/worker.Dockerfile` | `codexec-worker` bundled with `runc` + `skopeo` + `umoci`, so the real execution engine runs without a bare-metal Linux host. Needs `privileged: true` (see the caveat below). |
+
+`docker-compose.yml` wires up Postgres, NATS and both of these, so the
+entire stack comes up without a Rust toolchain on the host:
+
+```bash
+git clone <your-fork-url> codexec
+cd codexec
+cp .env.example .env              # at minimum set ADMIN_API_TOKEN
+docker compose up -d --build      # or: docker compose pull && docker compose up -d
+curl -s http://localhost:8080/languages
+```
+
+`--build` compiles both images from the working tree; `docker compose
+pull` is the shortcut once the tags exist on Docker Hub — which they only
+do after someone runs `docker/publish.sh` (below) against a namespace they
+own. The `codexec` default is a placeholder: point
+`CODEXEC_IMAGE_NAMESPACE` at your own Docker Hub account or org if that
+one isn't yours.
+
+The API is on `localhost:8080` (dashboard at `/`, admin portal at
+`/admin`). It runs the migrations on startup, so a fresh Postgres volume
+needs no extra step. Register plugins the usual way (§7) — from inside the
+worker container, since that's where the image cache lives:
+
+```bash
+docker compose exec worker codexec-plugin-cli register --manifest plugins/python3/plugin.toml
+```
+
+**Caveat on the worker image:** it exists to nest runc inside a container
+for dev machines, and `privileged: true` hands the container effective
+root on the host's kernel. That's an acceptable trade on a laptop and a
+poor one in production — on a real Linux VM run `codexec-worker` natively
+(§6), which is both simpler and safer. The `api` image carries no such
+caveat and is fine to deploy as-is.
+
+### Publishing the images
+
+`docker/publish.sh` builds and pushes both. It's the only step that needs
+Docker Hub credentials:
+
+```bash
+docker login
+docker/publish.sh                      # multi-arch (amd64 + arm64), push both
+docker/publish.sh --local              # host-arch only, load locally, no push
+docker/publish.sh --local worker       # just one image
+```
+
+Overridable via the environment — `docker-compose.yml` reads the same two
+variables, so a stack you bring up lands on exactly what you pushed:
+
+- `CODEXEC_IMAGE_NAMESPACE` — Docker Hub namespace (default `codexec`);
+  set it to your own account to publish a fork.
+- `CODEXEC_IMAGE_TAG` — tag to build/run (default `latest`). Prefer an
+  immutable tag (a version or commit SHA) for anything you deploy, and
+  push `latest` alongside it only as a convenience pointer.
+- `CODEXEC_IMAGE_PLATFORMS` — default `linux/amd64,linux/arm64`. Narrow it
+  to `linux/amd64` if you only ever deploy to x86 VMs.
+
+Both Dockerfiles **cross-compile** for the foreign arch (builder stage
+pinned to `--platform=$BUILDPLATFORM`, linking through Debian's cross-gcc)
+rather than building Rust inside a QEMU-emulated stage. That isn't just a
+speed choice: an emulated `cargo build` of this workspace reliably dies
+with `cc: internal compiler error: Segmentation fault signal terminated
+program collect2` — QEMU cannot survive a link that size. Only each
+image's thin runtime stage (an `apt-get`, nothing more) is emulated. If
+you add a builder step that shells out to a foreign-arch binary, that
+trade reverses and you'll be back on the emulator.
+
+To run your working tree instead of a published image, `docker compose
+build` (or `docker/publish.sh --local`) overwrites the local tag — compose
+declares both `image:` and `build:` for each service, so it builds when
+the image isn't present locally and pulls when you ask it to.
+
 ## 1. Prerequisites
 
 ```bash
@@ -61,8 +146,10 @@ No service to enable/start here — unlike containerd, `runc` has no
 daemon; `codexec-worker` invokes it fresh per submission.
 
 You'll also need Postgres and NATS (with JetStream). The repo's
-`docker-compose.yml` defines both and is safe to reuse as-is on Linux (only
-its `worker` service is the macOS-only nesting hack):
+`docker-compose.yml` defines both and is safe to reuse as-is on Linux —
+name the two services explicitly and you get just the infrastructure,
+leaving `api`/`worker` to run natively per §5/§6 (its `worker` service is
+the macOS-only nesting hack; see §0):
 
 ```bash
 git clone <your-fork-url> codexec
@@ -378,7 +465,9 @@ either tier:
 Nothing execution-related applies here — `codexec-api` never touches
 `runc` or runs submissions, so it can live on a small, plain host (or
 container) with just the binary, `DATABASE_URL`, `NATS_URL`, and
-`ADMIN_API_TOKEN`. It's stateless request/response, so it scales
+`ADMIN_API_TOKEN`. The `codexec/codexec-api` image (§0) is exactly that
+and needs no privileges, so this tier is the one that drops cleanly onto
+whatever container platform you already run. It's stateless request/response, so it scales
 horizontally the ordinary way (multiple instances behind a load balancer,
 no session affinity needed) if request volume ever warrants it — that's a
 much less interesting scaling problem than the worker fleet below, since

@@ -1,9 +1,8 @@
-# Dev/test image: bundles runc + skopeo + umoci alongside codexec-worker so
-# the real execution engine can be exercised on a dev machine (e.g. macOS
-# via colima/Docker Desktop) without a bare-metal Linux host. No daemon at
-# all - runc is a plain subprocess per submission, skopeo/umoci are only
-# invoked by codexec-plugin-cli at registration time, not on the
-# submission hot path.
+# Runtime image for codexec-api - the HTTP server (submissions + admin
+# routes, dashboard, admin portal). Unlike the worker it never invokes
+# runc, never touches cgroups and never unpacks images, so this is a plain
+# unprivileged binary on a slim base: no runc/skopeo/umoci, no
+# `privileged: true`, no root.
 
 # Cross-compile rather than emulate. Pinning the builder to $BUILDPLATFORM
 # runs rustc/cargo natively and targets the foreign arch only at codegen +
@@ -11,8 +10,8 @@
 # QEMU-emulated foreign-arch stage instead reliably dies with "cc:
 # internal compiler error: Segmentation fault signal terminated program
 # collect2" (emulated collect2/lld on a link this size), and is glacially
-# slow even when it survives. The runtime stage below is still emulated
-# for a foreign arch, but it only installs packages.
+# slow even when it survives. Only the thin runtime stage below is
+# emulated, and it does nothing heavier than apt-get.
 FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
 ARG TARGETARCH
 WORKDIR /build
@@ -50,49 +49,40 @@ RUN set -eux; \
 
 COPY Cargo.toml Cargo.lock* ./
 COPY crates crates
+# Two compile-time embeds mean these have to be in the build context even
+# though the runtime stage below never reads either off disk:
+# sqlx::migrate!("../../migrations") bakes in the migrations
+# (RUN_MIGRATIONS_ON_STARTUP replays them from the binary), and
+# plugin_templates.rs include_str!'s every plugins/*/plugin.toml to serve
+# /admin/plugin-templates.
 COPY migrations migrations
+COPY plugins plugins
 
 RUN set -eux; \
     . /cross-env.sh; \
-    cargo build --release -p codexec-worker -p codexec-plugin-cli; \
-    cp "target/${CARGO_BUILD_TARGET}/release/codexec-worker" /codexec-worker; \
-    cp "target/${CARGO_BUILD_TARGET}/release/codexec-plugin-cli" /codexec-plugin-cli
+    cargo build --release -p codexec-api; \
+    cp "target/${CARGO_BUILD_TARGET}/release/codexec-api" /codexec-api
 
 FROM debian:bookworm-slim
 
+# curl is here only so the container has a self-contained healthcheck
+# probe (see docker-compose.yml); tini reaps nothing interesting for the
+# API server but keeps signal handling (SIGTERM -> graceful exit) correct
+# for a PID 1 that isn't written to be an init.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    runc \
-    skopeo \
     ca-certificates \
     curl \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-# umoci isn't packaged for Debian bookworm - install the pinned upstream
-# static binary directly.
-ARG UMOCI_VERSION=0.6.0
-RUN ARCH="$(dpkg --print-architecture)" && \
-    curl -fsSL -o /usr/local/bin/umoci \
-        "https://github.com/opencontainers/umoci/releases/download/v${UMOCI_VERSION}/umoci.linux.${ARCH}" && \
-    chmod +x /usr/local/bin/umoci
+COPY --from=builder /codexec-api /usr/local/bin/codexec-api
 
-COPY --from=builder /codexec-worker /usr/local/bin/codexec-worker
-COPY --from=builder /codexec-plugin-cli /usr/local/bin/codexec-plugin-cli
-COPY docker/worker-entrypoint.sh /usr/local/bin/worker-entrypoint.sh
-RUN chmod +x /usr/local/bin/worker-entrypoint.sh
+RUN useradd --system --create-home --uid 10001 codexec
+USER codexec
+WORKDIR /home/codexec
 
-# So `docker compose exec worker codexec-plugin-cli register --manifest
-# plugins/<slug>/plugin.toml` works out of the box for local dev/testing.
-WORKDIR /app
-COPY plugins ./plugins
+# Matches API_BIND_ADDR's default (0.0.0.0:8080); override both together
+# if you bind elsewhere.
+EXPOSE 8080
 
-# `runc create`/`start` fork a container-init process that, once that
-# short-lived runc CLI invocation exits, gets reparented to this
-# container's PID 1. Without a real init there to reap it, it becomes a
-# zombie the moment the container's own process exits - which still holds
-# cgroup membership (blocking cleanup) and confuses runc's own state
-# reporting (a zombie PID still responds to a liveness check, so runc
-# never observes the container as "stopped"). tini is PID 1 instead of
-# codexec-worker specifically so it reaps every reparented orphan, not
-# just codexec-worker's own direct children.
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/worker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/codexec-api"]

@@ -21,6 +21,7 @@ use tower_http::trace::TraceLayer;
 
 const DASHBOARD_HTML: &str = include_str!("../assets/dashboard.html");
 const ADMIN_HTML: &str = include_str!("../assets/admin.html");
+const DOCS_HTML: &str = include_str!("../assets/docs.html");
 
 const SUBMISSIONS_STREAM: &str = "SUBMISSIONS";
 
@@ -76,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(|| async { Html(DASHBOARD_HTML) }))
         .route("/admin", get(|| async { Html(ADMIN_HTML) }))
+        .route("/docs", get(|| async { Html(DOCS_HTML) }))
         .route("/stats", get(stats::get_stats))
         .route("/languages", get(languages::list_public))
         .merge(submission_routes)
