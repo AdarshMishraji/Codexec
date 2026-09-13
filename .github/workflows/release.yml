@@ -1,0 +1,90 @@
+name: Release binaries
+
+# Builds standalone codexec-api, codexec-worker, and codexec-plugin-cli
+# binaries for Linux (x86_64 and aarch64 - the two architectures codexec
+# actually runs on, matching docker/*.Dockerfile) and attaches all of them
+# to one GitHub Release.
+#
+# Trigger with a version tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# or run it manually (workflow_dispatch) against any ref to sanity-check
+# the builds without cutting a release.
+#
+# Asset filenames deliberately carry NO version (<package>-<target>.tar.gz),
+# so https://github.com/<owner>/<repo>/releases/latest/download/<filename>
+# always resolves to the newest release - see DEPLOYMENT.md's "Downloading
+# prebuilt binaries" section, which links exactly that stable URL rather
+# than a version-pinned one.
+#
+# A downloaded binary only replaces "compile it yourself" - codexec-worker
+# in particular still needs runc/skopeo/umoci and cgroup v2 on the host
+# either way (see DEPLOYMENT.md's "Running natively" section).
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        package: [codexec-api, codexec-worker, codexec-plugin-cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      # Cross-compile via Debian's cross-gcc rather than emulation - the
+      # same approach already used by docker/api.Dockerfile and
+      # docker/worker.Dockerfile for their aarch64 image builds.
+      - name: Install cross-compilation linker (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: cargo build --release -p ${{ matrix.package }} --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          name="${{ matrix.package }}-${{ matrix.target }}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.package }}" "dist/${{ matrix.package }}"
+          tar -C dist -czf "${name}.tar.gz" "${{ matrix.package }}"
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-${{ matrix.target }}
+          path: |
+            ${{ matrix.package }}-${{ matrix.target }}.tar.gz
+            ${{ matrix.package }}-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
