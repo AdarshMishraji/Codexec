@@ -128,6 +128,18 @@ cargo build --release -p codexec-api -p codexec-worker -p codexec-plugin-cli
 
 Binaries land in `target/release/{codexec-api,codexec-worker,codexec-plugin-cli}`.
 
+`codexec-api` also needs the React frontend (the dashboard/admin portal/API
+docs) built separately — it's served from disk at runtime
+(`STATIC_ASSETS_DIR`, see [Configure](#configure)), not baked into the
+binary:
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+```
+
+Needs Node 20+ (matches `docker/api.Dockerfile`'s `node:22-bookworm-slim`
+frontend-builder stage). Output lands in `frontend/dist`.
+
 Prefer not to build at all? Every command below that invokes
 `./target/release/<binary>` works identically against a binary obtained
 from [Downloading prebuilt binaries from GitHub Releases](#downloading-prebuilt-binaries-from-github-releases)
@@ -170,6 +182,12 @@ Edit `.env` for your VM. At minimum:
   ```
 - `ENGINE_TOTAL_CPU_CORES` / `ENGINE_TOTAL_MEMORY_MB` — raise these from the
   small-dev-box defaults to match your VM's real capacity.
+- `STATIC_ASSETS_DIR` — where `codexec-api` serves the built frontend from.
+  Docker's default (`static`, relative to the image's `WORKDIR`) needs no
+  override; running natively from the repo root, set this to
+  `frontend/dist` (matching the build step above). Getting this wrong
+  doesn't crash the server — the JSON API keeps working — but every UI
+  route (`/`, `/admin`, `/docs`) 404s until it points at the right place.
 
 Both binaries load `.env` automatically (via `dotenvy`) if you run them
 from the repo root; otherwise export the same variables in your shell or
@@ -735,15 +753,40 @@ tar xzf "${BINARY}.tar.gz"
 sudo install -m 0755 "$BINARY" "/usr/local/bin/$BINARY"
 ```
 
+### Download the frontend
+
+The built React frontend is published the same way, as a single
+architecture-independent asset (`frontend-dist.tar.gz`, built by a separate
+`build-frontend` job in the same workflow — no Node toolchain needed on
+your end):
+
+```bash
+BASE_URL="https://github.com/AdarshMishraji/Codexec/releases/latest/download"
+curl -fsSL -o frontend-dist.tar.gz "$BASE_URL/frontend-dist.tar.gz"
+curl -fsSL -o frontend-dist.tar.gz.sha256 "$BASE_URL/frontend-dist.tar.gz.sha256"
+sha256sum -c frontend-dist.tar.gz.sha256
+
+mkdir -p frontend-dist && tar -C frontend-dist -xzf frontend-dist.tar.gz
+```
+
+Point `STATIC_ASSETS_DIR` (see [Configure](#configure)) at wherever you
+extracted it — e.g. `STATIC_ASSETS_DIR=$(pwd)/frontend-dist`.
+
 ### What each binary still needs
 
 Downloading skips only the Rust build — every other prerequisite from
 earlier in this document still applies, and differs per binary:
 
-- **`codexec-api`** needs nothing beyond configuration — `DATABASE_URL`,
-  `NATS_URL`, `ADMIN_API_TOKEN` (see [Configure](#configure)). It never
-  touches `runc`, so a downloaded binary here really is the whole
-  deployment for this tier.
+- **`codexec-api`** needs configuration (`DATABASE_URL`, `NATS_URL`,
+  `ADMIN_API_TOKEN` — see [Configure](#configure)) and, separately, the
+  built frontend on disk at `STATIC_ASSETS_DIR`. Unlike the old
+  embedded-HTML version of this page, a downloaded `codexec-api` binary
+  by itself has **no UI at all** — `/`, `/admin`, and `/docs` all 404 — the
+  JSON API (`/submissions`, `/languages`, `/stats`, `/admin/*`) works fine
+  regardless. Get the frontend either by building it yourself (see
+  [Build](#build)) or by downloading the `frontend-dist.tar.gz` release
+  asset below. It never touches `runc`, so aside from the frontend, a
+  downloaded binary is otherwise the whole deployment for this tier.
 - **`codexec-worker`** still needs `runc`, `skopeo`, `umoci`, and cgroup v2
   on the host, plus `IMAGE_CACHE_ROOT`/`RUNC_ROOT`/`WORKSPACE_ROOT` set up
   exactly as in [Prerequisites](#prerequisites)/[Configure](#configure) — a

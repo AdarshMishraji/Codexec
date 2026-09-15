@@ -11,3 +11,9 @@ target/
 .env
 
 .claude/
+
+# The frontend-builder stage does its own npm ci/build inside the image -
+# a host node_modules is huge, platform-specific, and would just get
+# overwritten; a host dist/ would be stale next to the fresh build anyway.
+frontend/node_modules
+frontend/dist

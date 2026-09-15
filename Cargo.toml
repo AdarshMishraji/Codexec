@@ -27,7 +27,7 @@ async-trait = "0.1"
 dotenvy = "0.15"
 anyhow = "1"
 axum = "0.7"
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "fs"] }
 async-nats = "0.37"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"

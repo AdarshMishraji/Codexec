@@ -10,18 +10,15 @@ mod stats;
 mod submissions;
 
 use axum::middleware;
-use axum::response::Html;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use config::ApiConfig;
 use sqlx::postgres::PgPoolOptions;
 use state::AppState;
+use std::path::Path;
 use std::sync::Arc;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
-
-const DASHBOARD_HTML: &str = include_str!("../assets/dashboard.html");
-const ADMIN_HTML: &str = include_str!("../assets/admin.html");
-const DOCS_HTML: &str = include_str!("../assets/docs.html");
 
 const SUBMISSIONS_STREAM: &str = "SUBMISSIONS";
 
@@ -74,14 +71,24 @@ async fn main() -> anyhow::Result<()> {
         .route("/submissions/:id", get(submissions::get_submission))
         .route_layer(middleware::from_fn_with_state(state.clone(), api_key_auth::require_api_key));
 
+    // Serves the built React SPA (frontend/dist in dev, baked into the Docker
+    // image at STATIC_ASSETS_DIR otherwise) for "/", "/admin", "/docs", and
+    // any client-side route - ServeDir handles real asset paths, and the
+    // fallback serves index.html for everything else so React Router can
+    // take over. Registered as a fallback specifically (not a route), so it
+    // never shadows the explicit JSON routes above, including the ones
+    // nested under "/admin" - axum only reaches a fallback once nothing else
+    // has matched.
+    let static_dir = &state.config.static_assets_dir;
+    let serve_dir =
+        ServeDir::new(static_dir).fallback(ServeFile::new(Path::new(static_dir).join("index.html")));
+
     let app = Router::new()
-        .route("/", get(|| async { Html(DASHBOARD_HTML) }))
-        .route("/admin", get(|| async { Html(ADMIN_HTML) }))
-        .route("/docs", get(|| async { Html(DOCS_HTML) }))
         .route("/stats", get(stats::get_stats))
         .route("/languages", get(languages::list_public))
         .merge(submission_routes)
         .nest("/admin", admin_routes)
+        .fallback_service(serve_dir)
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

@@ -13,6 +13,7 @@ pub struct ApiConfig {
     pub wall_time_fixed_overhead_ms: u64,
     pub platform_max_wall_time_ms: u64,
     pub run_migrations_on_startup: bool,
+    pub static_assets_dir: String,
 }
 
 impl ApiConfig {
@@ -29,6 +30,7 @@ impl ApiConfig {
             wall_time_fixed_overhead_ms: var_or("WALL_TIME_FIXED_OVERHEAD_MS", 2_000u64)?,
             platform_max_wall_time_ms: var_or("PLATFORM_MAX_WALL_TIME_MS", 120_000u64)?,
             run_migrations_on_startup: var_or("RUN_MIGRATIONS_ON_STARTUP", true)?,
+            static_assets_dir: var_or("STATIC_ASSETS_DIR", "static".to_string())?,
         })
     }
 }

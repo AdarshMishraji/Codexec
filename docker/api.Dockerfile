@@ -63,6 +63,19 @@ RUN set -eux; \
     cargo build --release -p codexec-api; \
     cp "target/${CARGO_BUILD_TARGET}/release/codexec-api" /codexec-api
 
+# Builds the React SPA (dashboard/admin/docs) that codexec-api serves via
+# tower-http's ServeDir at runtime - see main.rs's fallback_service. Pinned
+# to $BUILDPLATFORM like the Rust builder above, but for the opposite
+# reason: the output is plain static HTML/JS/CSS with zero architecture
+# dependency, so emulating this stage for a foreign TARGETARCH would be
+# pure waste, not a correctness workaround.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM debian:bookworm-slim
 
 # curl is here only so the container has a self-contained healthcheck
@@ -75,9 +88,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /codexec-api /usr/local/bin/codexec-api
-
 RUN useradd --system --create-home --uid 10001 codexec
+
+COPY --from=builder /codexec-api /usr/local/bin/codexec-api
+COPY --from=frontend-builder --chown=codexec:codexec /frontend/dist /home/codexec/static
+
 USER codexec
 WORKDIR /home/codexec
 

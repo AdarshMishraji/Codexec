@@ -1,6 +1,6 @@
-# codexec
+# <img src="frontend/public/icon.png" alt="" width="32" align="center" /> Codexec
 
-A self-hosted, Judge0-style code execution platform: submit source code in
+A code execution platform: submit source code in
 any registered language, get back stdout/stderr/exit code plus **actual**
 CPU time and peak memory consumed, with independently-enforced CPU-time,
 CPU-rate, and memory limits. No language is built in — every language is a
@@ -127,7 +127,7 @@ Compared to the two most common self-hostable code-execution engines:
 | API ↔ execution coupling | Fully decoupled: HTTP API and worker only share Postgres + a NATS queue, independently scalable/deployable | Traditionally one host running the API and `isolate` together | API and Docker daemon on the same host |
 | CPU limit model | **Two independent knobs**: a hard CPU-*rate* cap and a separate CPU-*time* budget, both kernel-enforced/read back from the cgroup | A single wall/CPU time limit | A single timeout |
 | Adding a language | Any OCI image + a manifest, registered at runtime via API/UI/CLI — no fork, no rebuild | A fixed, curated compiler list baked into the isolate box | A curated package catalog you install per-instance |
-| Ops surface | Ships a live dashboard, an admin UI (with a request Playground), and generated API docs, all from the same binary | Primarily an API; a bundled web UI exists separately | API/CLI only |
+| Ops surface | Ships a live dashboard, an admin UI (with a request Playground), and generated API docs — a React SPA served same-origin by `codexec-api` itself, no separate proxy or process | Primarily an API; a bundled web UI exists separately | API/CLI only |
 | Result data | Real cgroup-measured CPU time *and* peak memory, both persisted per submission | CPU/wall time and memory reported similarly, via `isolate`'s own accounting | Minimal — mainly stdout/stderr/exit code |
 
 The throughline: codexec treats "queue-decoupled, independently scalable
@@ -144,9 +144,12 @@ crates/
   codexec-common        DB models, config loading, grading, API-key hashing, plugin-registry SQL
   codexec-exec-contract  The ExecutionRequest/ExecutionOutcome/ExecutionEngine trait — the thin boundary between worker and engine
   codexec-exec-engine    runc-backed engine: image pull/unpack, OCI spec, cgroup stats, lifecycle, classification
-  codexec-api            axum HTTP server — submissions, admin routes, dashboard/admin/docs HTML assets
+  codexec-api            axum HTTP server — submissions, admin routes, and serving the built frontend
   codexec-worker         NATS consumer: claim/lease/execute/write-back loop, plugin registry cache
   codexec-plugin-cli     Operator CLI: register/activate/deactivate a plugin from a manifest
+frontend/                React (Vite + TypeScript) SPA — dashboard, admin portal, API docs. Built to
+                         static files and served by codexec-api itself (tower-http's ServeDir), same
+                         origin, no separate reverse proxy or process.
 plugins/                 One plugin.toml per shipped language, usually alongside its own Dockerfile
                          (a few, like python3, just point at a stock public image instead)
 migrations/              sqlx migrations (source of truth for the schema)
